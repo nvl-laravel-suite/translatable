@@ -1,0 +1,4 @@
+interface:
+  display_name: "NVL Translatable"
+  short_description: "Build robust Eloquent content translations"
+  default_prompt: "Use $nvl-translatable to design, implement, audit, and verify a translated Eloquent resource."

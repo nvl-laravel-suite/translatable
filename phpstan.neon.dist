@@ -1,0 +1,20 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - vendor/nesbot/carbon/extension.neon
+
+parameters:
+    excludePaths:
+        analyseAndScan:
+            - .temp/*
+
+    paths:
+        - src
+        - tests/Support/TestTranslatableModel.php
+        - tests/Support/TestSelfTranslatableModel.php
+        - tests/Support/TestDomainManagedTranslatableModel.php
+
+    level: max
+
+    checkModelProperties: true
+
+    tmpDir: .temp/phpstan
