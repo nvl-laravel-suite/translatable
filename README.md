@@ -47,7 +47,7 @@ cookies.
 ## Installation
 
 ```bash
-composer require nvl/translatable
+composer require nvl/laravel-suite:^1.0
 php artisan vendor:publish --tag=translatable-config
 ```
 
