@@ -2,6 +2,16 @@
 
 [← NVL Laravel Suite](../../../README.md)
 
+## Quick reference
+
+| Item | Value |
+|---|---|
+| Installed through | `composer require nvl/laravel-suite:^1.0` |
+| Module identifier | `nvl/translatable` |
+| PHP namespace | `Nvl\Translatable` |
+| Service provider | `Nvl\Translatable\Providers\TranslatableServiceProvider` |
+| Configuration | `config/translatable.php` |
+
 Typed, deterministic Eloquent content translations for Laravel 12 and 13.
 
 ## Purpose
