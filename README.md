@@ -1,4 +1,6 @@
-# NVL Translatable
+# NVL Translatable — API and usage
+
+[← NVL Laravel Suite](../../../README.md)
 
 Typed, deterministic Eloquent content translations for Laravel 12 and 13.
 
