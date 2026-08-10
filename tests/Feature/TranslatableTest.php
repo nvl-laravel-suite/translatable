@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
@@ -278,22 +279,39 @@ test('it rejects malformed write-map shapes before changing translation rows', f
 
 test('it eager loads requested and fallback translations without per-model queries', function (): void {
     $writer = app(TranslationWriter::class);
-
-    foreach (range(1, 3) as $index) {
+    $create = static function (int $index) use ($writer): void {
         $model = TestTranslatableModel::create(['slug' => "slug-{$index}"]);
         $writer->upsert($model, 'en', ['name' => "Name {$index}"]);
+    };
+    $measure = static function (): array {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+
+        $models = TestTranslatableModel::withResolvedTranslations('bg')->get();
+        $queryCount = count(DB::getQueryLog());
+        $names = $models->map(
+            static fn (TestTranslatableModel $model): mixed => $model->translated('name', 'bg'),
+        );
+
+        expect(DB::getQueryLog())->toHaveCount($queryCount);
+        DB::disableQueryLog();
+
+        return [$queryCount, $names->all()];
+    };
+
+    $create(1);
+    [$singleQueryCount] = $measure();
+
+    foreach (range(2, 25) as $index) {
+        $create($index);
     }
 
-    app('db')->enableQueryLog();
-    $models = TestTranslatableModel::withResolvedTranslations('bg')->get();
-    $queriesBeforeResolution = count(app('db')->getQueryLog());
+    [$populatedQueryCount, $names] = $measure();
 
-    $names = $models->map(
-        static fn (TestTranslatableModel $model): mixed => $model->translated('name', 'bg'),
-    );
-
-    expect($names->all())->toBe(['Name 1', 'Name 2', 'Name 3'])
-        ->and(count(app('db')->getQueryLog()))->toBe($queriesBeforeResolution);
+    expect($names)->toHaveCount(25)
+        ->and($names[0])->toBe('Name 1')
+        ->and($singleQueryCount)->toBeLessThanOrEqual(2)
+        ->and($populatedQueryCount)->toBe($singleQueryCount);
 });
 
 test('it resolves progressively less-specific locale parents', function (): void {
