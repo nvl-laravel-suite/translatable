@@ -203,8 +203,8 @@ test('it returns normalized available locales in deterministic order', function 
         'bg' => ['name' => 'Bulgarian'],
     ]);
     $model->translations()->create([
-        'locale' => 'EN',
-        'name' => 'Non-canonical legacy row',
+        'locale' => 'fr',
+        'name' => 'Unsupported legacy row',
     ]);
 
     expect($model->getAvailableLocales())->toBe(['bg', 'en', 'en-GB']);

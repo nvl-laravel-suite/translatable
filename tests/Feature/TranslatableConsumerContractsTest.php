@@ -133,7 +133,7 @@ test('consumer commands support human and machine readable resource workflows', 
         $table->string('locale', 35);
         $table->string('name')->nullable();
         $table->string('description')->nullable();
-        $table->unique(['test_translatable_model_id', 'locale']);
+        $table->unique(['test_translatable_model_id', 'locale'], 'consumer_resource_translation_unique');
     });
     app(TranslationResourceRegistry::class)->register(
         key: 'consumer.articles',
@@ -257,7 +257,7 @@ test('related and self consumers can compose every public query and locale helpe
         $table->string('locale', 35);
         $table->string('name')->nullable();
         $table->string('description')->nullable();
-        $table->unique(['test_translatable_model_id', 'locale']);
+        $table->unique(['test_translatable_model_id', 'locale'], 'consumer_query_translation_unique');
     });
     Schema::dropIfExists('test_self_translatable_models');
     Schema::create('test_self_translatable_models', function (Blueprint $table): void {
@@ -563,7 +563,7 @@ test('doctor gives exact migration guidance for broken related schemas', functio
         $table->string('locale', 35);
         $table->string('name')->nullable();
         $table->string('description')->nullable();
-        $table->unique(['test_translatable_model_id', 'locale']);
+        $table->unique(['test_translatable_model_id', 'locale'], 'doctor_translation_unique');
     });
 
     expect(implode(' ', $doctor->inspect()->errors))

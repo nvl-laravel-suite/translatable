@@ -48,6 +48,7 @@ abstract class TestCase extends Orchestra
     {
         $schema = $app['db']->connection()->getSchemaBuilder();
 
+        $schema->dropIfExists('test_translatable_models_i18n');
         $schema->dropIfExists('test_translatable_models');
         $schema->create('test_translatable_models', function (Blueprint $table) {
             $table->id();

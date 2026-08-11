@@ -80,8 +80,8 @@ test('it gathers normalized translations and locale coverage without n plus one 
     ]);
     $writer->upsert($second, 'en', ['name' => 'Second']);
     $second->translations()->create([
-        'locale' => 'EN',
-        'name' => 'Non-canonical legacy row',
+        'locale' => 'fr',
+        'name' => 'Unsupported legacy row',
     ]);
 
     $gatherer = app(TranslationResourceGatherer::class);
