@@ -4,6 +4,8 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-08-12
+
 - Clamped gather-command page sizes to each registered resource maximum so
   oversized consumer input remains bounded instead of failing at runtime.
 - Added consumer-contract coverage for serializable resource configuration,
@@ -53,7 +55,7 @@ All notable changes to `nvl/translatable` are documented here.
   UUID model examples, explicit schema ownership, registry configuration,
   middleware precedence, security boundaries, and an audit workflow.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-08-08
 
 - Added explicit dedicated-row model translations and deterministic locale fallback.
 - Added request/job-scoped locale state with lifecycle isolation.
