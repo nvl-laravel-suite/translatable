@@ -4,6 +4,12 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [1.0.5] - 2026-08-12
+
+### Changed
+
+- Released unchanged under the suite's shared version.
+
 ## [1.0.2] - 2026-08-12
 
 - Clamped gather-command page sizes to each registered resource maximum so
