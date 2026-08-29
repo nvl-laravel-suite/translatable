@@ -1,6 +1,6 @@
 ---
 name: nvl-translatable
-description: Design, implement, migrate, integrate, test, diagnose, audit, or review nvl/translatable in Laravel 12–13. Use for related translation tables, grouped same-table translations without owner rows, typed model declarations, deterministic fallback policies, request-scoped content locales, centralized resource registration and gathering, authorized mutation, optimistic concurrency, schema diagnostics, or package integrations.
+description: Design, implement, migrate, integrate, test, diagnose, audit, or review nvl/translatable in Laravel 13. Use for related translation tables, grouped same-table translations without owner rows, typed model declarations, deterministic fallback policies, request-scoped content locales, centralized resource registration and gathering, authorized mutation, optimistic concurrency, schema diagnostics, or package integrations.
 ---
 
 # NVL Translatable

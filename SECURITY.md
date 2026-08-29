@@ -1,7 +1,7 @@
 # Security Policy
 
-Security fixes are provided for the current `1.x` release line on the
-Composer-declared PHP `^8.3` and Laravel `^12.0 || ^13.0` ranges.
+Security fixes are provided for the current `2.x` release line on the
+Composer-declared PHP `^8.3` and Laravel `^13.0` ranges.
 
 Report vulnerabilities privately through the repository host's
 security-advisory feature. Include resource key, actor, scope, locale, version

@@ -6,13 +6,13 @@
 
 | Item | Value |
 |---|---|
-| Installed through | `composer require nvl/laravel-suite:^1.0` |
+| Installed through | `composer require nvl/laravel-suite:^2.0` |
 | Module identifier | `nvl/translatable` |
 | PHP namespace | `Nvl\Translatable` |
 | Service provider | `Nvl\Translatable\Providers\TranslatableServiceProvider` |
 | Configuration | `config/translatable.php` |
 
-Typed, deterministic Eloquent content translations for Laravel 12 and 13.
+Typed, deterministic Eloquent content translations for Laravel 13.
 
 ## Purpose
 
@@ -53,13 +53,13 @@ cookies.
 ## Requirements
 
 - PHP `^8.3`
-- Laravel `^12.0 || ^13.0`
+- Laravel `^13.0`
 - `nvl/data` for public DTO and TypeScript declarations
 
 ## Installation
 
 ```bash
-composer require nvl/laravel-suite:^1.0
+composer require nvl/laravel-suite:^2.0
 php artisan vendor:publish --tag=translatable-config
 ```
 
