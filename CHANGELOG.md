@@ -4,6 +4,14 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-29
+
+### Changed
+
+- Kept typed translation definitions, traits, scopes, resolvers, and writers on
+  opted-in consumer/domain models as an explicit Suite 2.0 model-query
+  exception; package-owned domain mutations remain Action-owned.
+
 ## [1.0.5] - 2026-08-12
 
 ### Changed
