@@ -6,6 +6,7 @@ namespace Nvl\Translatable\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Nvl\Data\Services\TypeScriptSourceRegistry;
+use Nvl\Support\Traits\MergesPackageConfiguration;
 use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Console\Commands\GatherTranslationResourcesCommand;
@@ -34,12 +35,14 @@ use Nvl\Translatable\Services\TranslationWriter;
  */
 final class TranslatableServiceProvider extends ServiceProvider
 {
+    use MergesPackageConfiguration;
+
     /**
      * Register translation services and default integrations.
      */
     public function register(): void
     {
-        $this->replaceConfigRecursivelyFrom(
+        $this->mergePackageConfiguration(
             __DIR__.'/../../config/translatable.php',
             'translatable',
         );
