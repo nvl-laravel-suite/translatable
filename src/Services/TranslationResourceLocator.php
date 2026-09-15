@@ -41,16 +41,23 @@ final readonly class TranslationResourceLocator
         $definition = $model->translationDefinition();
         $table = $model->getTable();
         $alias = 'translation_representatives';
+        $query = $this->applyQueryScope($resource, $model->newQuery());
+        $visibleRows = (clone $query)
+            ->select(["{$table}.{$definition->groupKey}", "{$table}.{$definition->localeKey}"])
+            ->reorder()
+            ->toBase()
+            ->cloneWithout(['limit', 'offset']);
 
-        $query = $model->newQuery()->whereNotExists(
+        return $query->whereNotExists(
             static function (QueryBuilder $query) use (
                 $alias,
                 $definition,
                 $table,
+                $visibleRows,
             ): void {
                 $query
                     ->selectRaw('1')
-                    ->from("{$table} as {$alias}")
+                    ->fromSub($visibleRows, $alias)
                     ->whereColumn(
                         "{$alias}.{$definition->groupKey}",
                         "{$table}.{$definition->groupKey}",
@@ -63,7 +70,6 @@ final readonly class TranslationResourceLocator
             },
         );
 
-        return $this->applyQueryScope($resource, $query);
     }
 
     /**

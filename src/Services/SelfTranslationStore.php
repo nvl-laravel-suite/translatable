@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Services;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
@@ -48,7 +49,13 @@ final readonly class SelfTranslationStore
             $translation->setAttribute($field, $value);
         }
 
-        if ($translation->isDirty()) {
+        if (method_exists($translation, 'trashed')
+            && method_exists($translation, 'restore')
+            && $translation->trashed()) {
+            if (! $translation->restore()) {
+                throw new TranslatableException('The grouped translation row could not be restored.');
+            }
+        } elseif ($translation->isDirty()) {
             $translation->save();
         }
 
@@ -141,7 +148,9 @@ final readonly class SelfTranslationStore
         array $identity,
         array $values,
     ): Model {
-        if (($translation = $this->find($owner->newQuery(), $identity)) instanceof Model) {
+        $query = $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class);
+
+        if (($translation = $this->find($query, $identity)) instanceof Model) {
             return $translation;
         }
 
@@ -163,7 +172,7 @@ final readonly class SelfTranslationStore
             );
         } catch (UniqueConstraintViolationException $exception) {
             $translation = $this->find(
-                $owner->newQuery()->useWritePdo(),
+                $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class)->useWritePdo(),
                 $identity,
             );
 

@@ -72,6 +72,9 @@ changes.
 
 Eager-load related translations for collections. Use `locale()` on self-row
 queries to select one requested or fallback row per group.
+Apply visibility constraints before `locale()`. Soft-deleted rows do not block
+fallback by default; use `withTrashed()->locale(...)` to include them or
+`onlyTrashed()->locale(...)` to select among deleted rows.
 
 ## Mutate safely
 
@@ -82,6 +85,11 @@ queries to select one requested or fallback row per group.
 - For model-local self-row mutations, use `setTranslation()`,
   `cloneTranslation()`, and `deleteTranslation()`; these preserve identity,
   grouped locking, final-row protection, deadlock retries, and loaded state.
+- Self-row models support `Illuminate\Database\Eloquent\SoftDeletes`, including custom deleted-at columns.
+  Writing a deleted locale restores its existing physical row, retains omitted
+  translated fields, and refreshes shared fields. Keep the group/locale unique
+  index across active and deleted rows; only active rows count toward final-row
+  protection.
 - Instance saves enforce self-row structure even when model events are muted;
   bulk query updates bypass Eloquent and must never change group or locale.
 - Prefer `SyncTranslationResourceAction` and

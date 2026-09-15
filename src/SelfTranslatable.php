@@ -7,6 +7,7 @@ namespace Nvl\Translatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
@@ -222,6 +223,7 @@ trait SelfTranslatable
 
     /**
      * Scope a query to one preferred locale row per logical resource group.
+     * Apply visibility constraints before this scope so preference uses the same eligible rows.
      *
      * @param  Builder<static>  $query
      * @return Builder<static>
@@ -234,12 +236,19 @@ trait SelfTranslatable
         $table = $this->getTable();
         $groupKey = $definition->groupKey;
         $localeKey = $definition->localeKey;
+        $visibleRows = (clone $query)
+            ->withoutGlobalScopesExcept([SoftDeletingScope::class])
+            ->select(["{$table}.{$groupKey}", "{$table}.{$localeKey}"])
+            ->reorder()
+            ->toBase()
+            ->cloneWithout(['limit', 'offset']);
 
         return $query->where(function (Builder $preferenceQuery) use (
             $candidates,
             $table,
             $groupKey,
             $localeKey,
+            $visibleRows,
         ): void {
             foreach ($candidates as $index => $candidate) {
                 $method = $index === 0 ? 'where' : 'orWhere';
@@ -252,6 +261,7 @@ trait SelfTranslatable
                     $groupKey,
                     $localeKey,
                     $index,
+                    $visibleRows,
                 ): void {
                     $candidateQuery->getQuery()->where(
                         "{$table}.{$localeKey}",
@@ -270,10 +280,11 @@ trait SelfTranslatable
                             $table,
                             $groupKey,
                             $localeKey,
+                            $visibleRows,
                         ): void {
                             $subquery
                                 ->selectRaw('1')
-                                ->from("{$table} as {$alias}")
+                                ->fromSub($visibleRows, $alias)
                                 ->whereColumn("{$alias}.{$groupKey}", "{$table}.{$groupKey}")
                                 ->whereIn("{$alias}.{$localeKey}", $preferredLocales);
                         },

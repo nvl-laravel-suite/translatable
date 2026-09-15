@@ -11,6 +11,7 @@ parameters:
         - src
         - tests/Support/TestTranslatableModel.php
         - tests/Support/TestSelfTranslatableModel.php
+        - tests/Support/TestSoftDeletingSelfTranslatableModel.php
         - tests/Support/TestDomainManagedTranslatableModel.php
 
     level: max

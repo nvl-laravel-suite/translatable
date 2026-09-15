@@ -225,6 +225,7 @@ final readonly class TranslationResourceGatherer
             && $definition instanceof SelfTranslationDefinition) {
             $table = $model->getTable();
             $alias = 'translation_coverage_rows';
+            $visibleRows = $model->newQuery()->select([$definition->groupKey, $definition->localeKey]);
 
             return $query->whereExists(
                 static function (QueryBuilder $translatedQuery) use (
@@ -232,10 +233,11 @@ final readonly class TranslationResourceGatherer
                     $definition,
                     $locale,
                     $table,
+                    $visibleRows,
                 ): void {
                     $translatedQuery
                         ->selectRaw('1')
-                        ->from("{$table} as {$alias}")
+                        ->fromSub($visibleRows, $alias)
                         ->whereColumn(
                             "{$alias}.{$definition->groupKey}",
                             "{$table}.{$definition->groupKey}",
@@ -306,6 +308,10 @@ final readonly class TranslationResourceGatherer
         $definition = $model->translationDefinition();
         $table = $model->getTable();
         $alias = 'translation_search_rows';
+        $visibleRows = $model->newQuery()->select(array_values(array_unique([
+            $definition->groupKey,
+            ...$resource->searchableColumns,
+        ])));
 
         $builder->whereExists(
             function (QueryBuilder $query) use (
@@ -314,10 +320,11 @@ final readonly class TranslationResourceGatherer
                 $resource,
                 $table,
                 $term,
+                $visibleRows,
             ): void {
                 $query
                     ->selectRaw('1')
-                    ->from("{$table} as {$alias}")
+                    ->fromSub($visibleRows, $alias)
                     ->whereColumn(
                         "{$alias}.{$definition->groupKey}",
                         "{$table}.{$definition->groupKey}",
@@ -390,6 +397,7 @@ final readonly class TranslationResourceGatherer
         if ($model instanceof SelfTranslatableModel) {
             $table = $model->getTable();
             $alias = 'translation_missing_rows';
+            $visibleRows = $model->newQuery()->select([$model->translationDefinition()->groupKey, $definition->localeKey]);
 
             $builder->whereNotExists(
                 static function (QueryBuilder $query) use (
@@ -397,6 +405,7 @@ final readonly class TranslationResourceGatherer
                     $definition,
                     $locale,
                     $table,
+                    $visibleRows,
                 ): void {
                     if (! $definition instanceof SelfTranslationDefinition) {
                         throw new LogicException('Expected a self-translation definition.');
@@ -404,7 +413,7 @@ final readonly class TranslationResourceGatherer
 
                     $query
                         ->selectRaw('1')
-                        ->from("{$table} as {$alias}")
+                        ->fromSub($visibleRows, $alias)
                         ->whereColumn(
                             "{$alias}.{$definition->groupKey}",
                             "{$table}.{$definition->groupKey}",

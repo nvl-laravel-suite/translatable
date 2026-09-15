@@ -306,6 +306,23 @@ retry deadlocks, lock grouped rows before deletion, refresh preloaded group
 state, and preserve final-row protection. Use the central actions when
 authorization and optimistic concurrency are also required.
 
+Self-translated models may use Laravel's `SoftDeletes`, including a custom
+deleted-at column. Deleted locale rows are excluded from normal reads and
+fallback selection. Writing a deleted locale through `setTranslation()`,
+`cloneTranslation()`, or `TranslationWriter` restores the existing physical
+row, preserves omitted translated fields, and refreshes shared fields from the
+representative row. The group/locale unique index still covers deleted rows.
+
+Apply explicit visibility constraints before `locale()` so its preferred-row
+query includes those predicates and the soft-delete scope. This includes
+explicit trash filters:
+
+```php
+LocalizedEntry::query()->locale('bg')->get(); // Active requested or fallback rows.
+LocalizedEntry::withTrashed()->locale('bg')->get(); // Include deleted candidates.
+LocalizedEntry::onlyTrashed()->locale('bg')->get(); // Select among deleted rows.
+```
+
 By default, deleting the final locale row is rejected. Set
 `allowDeletingLastTranslation: true` only when an empty logical resource is a
 valid domain state.

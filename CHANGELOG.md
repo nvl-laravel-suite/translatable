@@ -4,6 +4,16 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Exclude soft-deleted self-translation rows from locale fallback and central
+  resource reads, search, coverage, and missing-locale queries. Apply explicit
+  visibility filters before `locale()`, including `withTrashed()` and
+  `onlyTrashed()`. Preserve locale selection from model global scopes.
+- Restore an existing deleted locale row on self-translation writes, retaining
+  its primary key and omitted translated fields while refreshing shared fields.
+  Custom deleted-at columns and final-active-locale protection are supported.
+
 ## [2.0.0] - 2026-08-29
 
 ### Changed
