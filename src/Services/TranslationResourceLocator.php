@@ -194,6 +194,9 @@ final readonly class TranslationResourceLocator
      */
     public function loadTranslations(Collection $records): void
     {
+        foreach ($records as $model) {
+            unset($this->resolvedIdentities[$model]);
+        }
         $record = $records->first();
 
         if (! $record instanceof TranslatableResourceModel) {
@@ -274,7 +277,7 @@ final readonly class TranslationResourceLocator
 
         return $resolved !== null
             && $resolved['definition'] == $definition
-            && $this->sameContext($resolved['context'], $this->context->snapshot())
+            && $resolved['context'] === $this->context->snapshot()
             ? $resolved['partitionKey']
             : null;
     }
@@ -390,7 +393,6 @@ final readonly class TranslationResourceLocator
         $suppliedByKey = [];
         $keys = [];
         foreach ($records as $model) {
-            unset($this->resolvedIdentities[$model]);
             if (! $model instanceof TranslatableResourceModel
                 || ! $this->compatible($record, $model)
                 || $model->translationDefinition() != $definition) {
@@ -508,13 +510,6 @@ final readonly class TranslationResourceLocator
         }
 
         return array_values(array_unique($columns));
-    }
-
-    /** Compare immutable tenant context values without retaining mutable scope state. */
-    private function sameContext(TenantContextSnapshot $expected, TenantContextSnapshot $actual): bool
-    {
-        return $expected->mode === $actual->mode
-            && $expected->tenantId?->value === $actual->tenantId?->value;
     }
 
     /**

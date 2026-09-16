@@ -287,6 +287,47 @@ it('rejects a retained preloaded version after the tenant context changes', func
     ))->toThrow(TenantBoundaryViolation::class);
 });
 
+it('rejects a retained preloaded version in a later operation for the same tenant', function (): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'same', 'en', 'Tenant A');
+    $foreign = $s->entry($s::B, 'same', 'en', 'Tenant B');
+    $locator = app(TranslationResourceLocator::class);
+    $versioner = app(TranslationResourceVersioner::class);
+
+    $retained = $s->run($s::A, function () use ($locator): TenantSelfEntry {
+        $resource = app(TranslationResourceRegistry::class)->get('test.entries');
+        $record = $locator->query($resource)->firstOrFail();
+        $locator->loadTranslations(new Collection([$record]));
+
+        return $record;
+    });
+    $retained->setRelation('translations', new Collection([$foreign]));
+
+    expect(fn (): string => $s->run(
+        $s::A,
+        fn (): string => $versioner->version($retained),
+    ))->toThrow(TenantBoundaryViolation::class);
+});
+
+it('clears every prior preload identity before a partial batch failure', function (): void {
+    $s = TenantTranslationScenario::install();
+    $first = $s->entry($s::A, 'first', 'en', 'First');
+    $last = $s->entry($s::A, 'last', 'en', 'Last');
+    $invalid = $s->article($s::A, 'article', ['en' => ['name' => 'Article']]);
+    $locator = app(TranslationResourceLocator::class);
+    $versioner = app(TranslationResourceVersioner::class);
+
+    $s->run($s::A, function () use ($first, $invalid, $last, $locator, $versioner): void {
+        $locator->loadTranslations(new Collection([$first, $last]));
+        $last->setAttribute('tenant_id', TenantTranslationScenario::B);
+
+        expect(fn () => $locator->loadTranslations(new Collection([$first, $invalid, $last])))
+            ->toThrow(TranslationResourceException::class);
+        expect(fn (): string => $versioner->version($last))
+            ->toThrow(TenantBoundaryViolation::class);
+    });
+});
+
 it('rejects stale self group identities before loading locale rows', function (): void {
     $s = TenantTranslationScenario::install();
     $entry = $s->entry($s::A, 'original', 'en', 'Original');
