@@ -33,23 +33,31 @@ final readonly class SelfTranslationStore
         string $locale,
         array $attributes,
     ): Model {
-        $groupValue = $owner->translationResourceKey();
+        $canonicalOwner = $this->lockOwner($owner, $definition);
         $shared = [];
 
         foreach ($definition->sharedFields as $field) {
-            $shared[$field] = $owner->getAttribute($field);
+            $shared[$field] = $canonicalOwner->getAttribute($field);
         }
 
         $identity = [
-            $definition->groupKey => $groupValue,
+            ...$this->ownership->childAttributes($canonicalOwner, $definition),
+            $definition->groupKey => $canonicalOwner->translationResourceKey(),
             $definition->localeKey => $locale,
         ];
-        $creationValues = [...$shared, ...$attributes];
+        $this->groupQuery($canonicalOwner, $definition, withTrashed: true)
+            ->lockForUpdate()
+            ->get();
         $translation = Model::unguarded(
-            fn (): Model => $this->firstOrCreate($owner, $identity, $creationValues),
+            fn (): Model => $this->firstOrCreate(
+                $canonicalOwner,
+                $definition,
+                $identity,
+                [...$shared, ...$attributes],
+            ),
         );
 
-        foreach ([...$shared, ...$attributes] as $field => $value) {
+        foreach ([...$shared, ...$attributes, ...$identity] as $field => $value) {
             $translation->setAttribute($field, $value);
         }
 
@@ -76,17 +84,23 @@ final readonly class SelfTranslationStore
         SelfTranslationDefinition $definition,
         array $locales,
     ): void {
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+
         if ($locales === [] && ! $definition->allowDeletingLastTranslation) {
             throw new TranslatableException(
                 'A self-translatable resource must retain at least one locale row.',
             );
         }
 
-        $query = $owner->newQuery();
-        $query->getQuery()->where(
-            $definition->groupKey,
-            $owner->translationResourceKey(),
-        );
+        $query = $this->groupQuery($canonicalOwner, $definition);
+        $rows = (clone $query)->lockForUpdate()->get([$definition->localeKey]);
+
+        if (! $definition->allowDeletingLastTranslation
+            && $rows->whereIn($definition->localeKey, $locales)->isEmpty()) {
+            throw new TranslatableException(
+                'A self-translatable resource must retain at least one locale row.',
+            );
+        }
 
         if ($locales !== []) {
             $query->getQuery()->whereNotIn($definition->localeKey, $locales);
@@ -103,26 +117,21 @@ final readonly class SelfTranslationStore
         SelfTranslationDefinition $definition,
         string $locale,
     ): bool {
-        $query = $owner->newQuery();
-        $query->getQuery()->where(
-            $definition->groupKey,
-            $owner->translationResourceKey(),
-        );
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+        $query = $this->groupQuery($canonicalOwner, $definition);
+        $rows = (clone $query)->lockForUpdate()->get();
 
-        $target = clone $query;
-        $target->getQuery()->where($definition->localeKey, $locale);
-
-        if (! $target->exists()) {
+        if (! $rows->contains($definition->localeKey, $locale)) {
             return false;
         }
 
-        if (! $definition->allowDeletingLastTranslation && (clone $query)->count() <= 1) {
+        if (! $definition->allowDeletingLastTranslation && $rows->count() <= 1) {
             throw new TranslatableException(
                 'The final locale row of a self-translatable resource cannot be deleted.',
             );
         }
 
-        return $target->delete() > 0;
+        return $query->where($definition->localeKey, $locale)->delete() > 0;
     }
 
     /**
@@ -177,15 +186,19 @@ final readonly class SelfTranslationStore
     /**
      * Find or create a grouped row while containing unique-key races in a savepoint.
      *
-     * @param  array<string, int|string>  $identity
+     * @param  array<string, mixed>  $identity
      * @param  array<string, mixed>  $values
      */
     private function firstOrCreate(
         Model&SelfTranslatableModel $owner,
+        SelfTranslationDefinition $definition,
         array $identity,
         array $values,
     ): Model {
-        $query = $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class);
+        $query = $this->ownership->query(
+            $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class),
+            $definition,
+        );
 
         if (($translation = $this->find($query, $identity)) instanceof Model) {
             return $translation;
@@ -196,20 +209,21 @@ final readonly class SelfTranslationStore
                 function () use ($owner, $identity, $values): Model {
                     $translation = $owner->newInstance();
 
-                    foreach ([...$identity, ...$values] as $field => $value) {
+                    foreach ([...$values, ...$identity] as $field => $value) {
                         $translation->setAttribute($field, $value);
                     }
 
-                    if (! $translation->save()) {
-                        throw new TranslatableException('The grouped translation row could not be created.');
-                    }
+                    $translation->saveOrFail();
 
                     return $translation;
                 },
             );
         } catch (UniqueConstraintViolationException $exception) {
             $translation = $this->find(
-                $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class)->useWritePdo(),
+                $this->ownership->query(
+                    $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class)->useWritePdo(),
+                    $definition,
+                ),
                 $identity,
             );
 
@@ -221,7 +235,7 @@ final readonly class SelfTranslationStore
      * Find one row through dynamically declared, validated identity columns.
      *
      * @param  Builder<Model>  $query
-     * @param  array<string, int|string>  $identity
+     * @param  array<string, mixed>  $identity
      */
     private function find(Builder $query, array $identity): ?Model
     {
@@ -230,5 +244,48 @@ final readonly class SelfTranslationStore
         }
 
         return $query->first();
+    }
+
+    /**
+     * Reload the canonical representative before mutating its immutable group.
+     */
+    private function lockOwner(
+        Model&SelfTranslatableModel $owner,
+        SelfTranslationDefinition $definition,
+    ): Model&SelfTranslatableModel {
+        $canonicalOwner = $this->ownership->lockOwner($owner, $definition);
+
+        if (! $canonicalOwner instanceof SelfTranslatableModel) {
+            throw new TranslatableException('The canonical self-translation owner is invalid.');
+        }
+
+        return $canonicalOwner;
+    }
+
+    /**
+     * Build the canonical tenant-local group query while retaining every ordinary scope.
+     *
+     * @return Builder<Model>
+     */
+    private function groupQuery(
+        Model&SelfTranslatableModel $owner,
+        SelfTranslationDefinition $definition,
+        bool $withTrashed = false,
+    ): Builder {
+        $query = $owner->newQuery();
+
+        if ($withTrashed) {
+            $query->withoutGlobalScope(SoftDeletingScope::class);
+        }
+
+        $query = $this->ownership->query($query, $definition);
+        foreach ([
+            ...$this->ownership->childAttributes($owner, $definition),
+            $definition->groupKey => $owner->translationResourceKey(),
+        ] as $column => $value) {
+            $query->getQuery()->where($column, $value);
+        }
+
+        return $query;
     }
 }

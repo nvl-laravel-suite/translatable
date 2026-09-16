@@ -11,6 +11,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
+use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\ContentLocale;
@@ -161,9 +162,14 @@ trait SelfTranslatable
             );
         }
 
-        if ($model->isDirty([$definition->groupKey, $definition->localeKey])) {
+        if ($model->isDirty([
+            'tenant_id',
+            'ownership_key',
+            $definition->groupKey,
+            $definition->localeKey,
+        ])) {
             throw new TranslatableException(
-                'Self-translation group and locale columns are immutable after creation.',
+                'Self-translation ownership, group, and locale columns are immutable after creation.',
             );
         }
     }
@@ -684,12 +690,6 @@ trait SelfTranslatable
 
         return $this->getConnection()->transaction(
             function () use ($definition, $resolvedLocale): bool {
-                static::query()
-                    ->where($definition->groupKey, $this->translationResourceKey())
-                    ->orderBy($this->getKeyName())
-                    ->lockForUpdate()
-                    ->get();
-
                 $store = app(SelfTranslationStore::class);
                 $deleted = $store->delete(
                     $this,
@@ -716,9 +716,22 @@ trait SelfTranslatable
 
         return $this->getConnection()->transaction(
             function () use ($definition, $sourceLocale, $targetLocale): ?Model {
-                $source = static::query()
-                    ->where($definition->groupKey, $this->translationResourceKey())
-                    ->where($definition->localeKey, $sourceLocale)
+                $ownership = app(TranslationOwnership::class);
+                $canonicalOwner = $ownership->lockOwner($this, $definition);
+
+                if (! $canonicalOwner instanceof SelfTranslatableModel) {
+                    throw new TranslatableException('The canonical self-translation owner is invalid.');
+                }
+
+                $source = $ownership->query($canonicalOwner->newQuery(), $definition);
+                foreach ([
+                    ...$ownership->childAttributes($canonicalOwner, $definition),
+                    $definition->groupKey => $canonicalOwner->translationResourceKey(),
+                    $definition->localeKey => $sourceLocale,
+                ] as $column => $value) {
+                    $source->getQuery()->where($column, $value);
+                }
+                $source = $source
                     ->lockForUpdate()
                     ->first();
 
@@ -739,7 +752,7 @@ trait SelfTranslatable
 
                 $store = app(SelfTranslationStore::class);
                 $translation = $store->upsert(
-                    $this,
+                    $canonicalOwner,
                     $definition,
                     $targetLocale,
                     $data,

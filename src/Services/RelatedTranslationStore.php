@@ -39,13 +39,17 @@ final readonly class RelatedTranslationStore
         string $locale,
         array $attributes,
     ): Model {
-        $relation = $owner->translations();
-        $identity = [$definition->localeKey => $locale];
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+        $relation = $canonicalOwner->translations();
+        $identity = [
+            ...$this->ownerIdentity($canonicalOwner, $definition),
+            $definition->localeKey => $locale,
+        ];
         $translation = Model::unguarded(
             fn (): Model => $this->firstOrCreate($relation, $identity, $attributes),
         );
 
-        foreach ($attributes as $field => $value) {
+        foreach ([...$attributes, ...$identity] as $field => $value) {
             $translation->setAttribute($field, $value);
         }
 
@@ -66,7 +70,11 @@ final readonly class RelatedTranslationStore
         RelatedTranslationDefinition $definition,
         array $locales,
     ): void {
-        $query = $owner->translations();
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+        $query = $this->constrainOwnership(
+            $canonicalOwner->translations(),
+            $this->ownerIdentity($canonicalOwner, $definition),
+        );
 
         if ($locales !== []) {
             $query->getQuery()->getQuery()->whereNotIn($definition->localeKey, $locales);
@@ -83,7 +91,11 @@ final readonly class RelatedTranslationStore
         RelatedTranslationDefinition $definition,
         string $locale,
     ): bool {
-        $query = $owner->translations();
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+        $query = $this->constrainOwnership(
+            $canonicalOwner->translations(),
+            $this->ownerIdentity($canonicalOwner, $definition),
+        );
         $query->getQuery()->getQuery()->where($definition->localeKey, $locale);
 
         return $query->delete() > 0;
@@ -197,7 +209,7 @@ final readonly class RelatedTranslationStore
      * Find or create a related row while containing unique-key races in a savepoint.
      *
      * @param  HasMany<Model, *>  $relation
-     * @param  array<string, string>  $identity
+     * @param  array<string, mixed>  $identity
      * @param  array<string, mixed>  $values
      */
     private function firstOrCreate(
@@ -214,13 +226,11 @@ final readonly class RelatedTranslationStore
                 function () use ($relation, $identity, $values): Model {
                     $translation = $relation->make();
 
-                    foreach ([...$identity, ...$values] as $field => $value) {
+                    foreach ([...$values, ...$identity] as $field => $value) {
                         $translation->setAttribute($field, $value);
                     }
 
-                    if ($relation->save($translation) === false) {
-                        throw new TranslatableException('The related translation row could not be created.');
-                    }
+                    $translation->saveOrFail();
 
                     return $translation;
                 },
@@ -238,7 +248,7 @@ final readonly class RelatedTranslationStore
      * Find one related row through dynamically declared, validated identity columns.
      *
      * @param  HasMany<Model, *>  $relation
-     * @param  array<string, string>  $identity
+     * @param  array<string, mixed>  $identity
      */
     private function find(HasMany $relation, array $identity): ?Model
     {
@@ -249,5 +259,37 @@ final readonly class RelatedTranslationStore
         }
 
         return $lookup->first();
+    }
+
+    /**
+     * Reload the canonical related owner before mutating its translation rows.
+     */
+    private function lockOwner(
+        Model&TranslatableModel $owner,
+        RelatedTranslationDefinition $definition,
+    ): Model&TranslatableModel {
+        $canonicalOwner = $this->ownership->lockOwner($owner, $definition);
+
+        if (! $canonicalOwner instanceof TranslatableModel) {
+            throw new TranslatableException('The canonical related translation owner is invalid.');
+        }
+
+        return $canonicalOwner;
+    }
+
+    /**
+     * Apply the exact canonical owner foreign key and ownership columns.
+     *
+     * @param  HasMany<Model, *>  $relation
+     * @param  array<string, mixed>  $identity
+     * @return HasMany<Model, *>
+     */
+    private function constrainOwnership(HasMany $relation, array $identity): HasMany
+    {
+        foreach ($identity as $column => $value) {
+            $relation->getQuery()->getQuery()->where($column, $value);
+        }
+
+        return $relation;
     }
 }

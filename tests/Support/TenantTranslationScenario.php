@@ -28,10 +28,25 @@ final class TenantTranslationScenario
 
     public const string B = '00000000-0000-4000-8000-00000000000b';
 
+    /** Retain the explicit fixture connection for seeded model instances. */
+    private function __construct(private readonly ?string $connection = null) {}
+
     /** Adopt the three explicit fixture resources before any tenant read. */
-    public static function install(bool $mixedEntries = false): self
+    public static function install(bool $mixedEntries = false, ?string $connection = null): self
     {
-        config(['tenancy.enabled' => true]);
+        $database = app('db');
+        if ($connection !== null) {
+            $database->setDefaultConnection($connection);
+        }
+        config([
+            'tenancy.enabled' => true,
+            'tenancy.connection' => $connection,
+        ]);
+        if ($connection !== null
+            && ! app('db')->connection($connection)->getSchemaBuilder()->hasTable('nvl_tenancy_operations')) {
+            $migration = require dirname(__DIR__, 3).'/tenancy/database/migrations/tenancy/2026_09_16_000001_create_tenancy_core_tables.php';
+            $migration->up();
+        }
         app()->instance(TenantDirectory::class, new class implements TenantDirectory
         {
             /** Resolve only the fixture's two active tenants. */
@@ -67,7 +82,7 @@ final class TenantTranslationScenario
         app(TranslationResourceRegistry::class)->register('test.entries', TenantSelfEntry::class, 'Entries');
         app(TranslationResourceRegistry::class)->register('test.articles', TenantArticle::class, 'Articles');
 
-        return new self;
+        return new self($connection);
     }
 
     /**
@@ -88,6 +103,7 @@ final class TenantTranslationScenario
     {
         return $this->run($tenant, function () use ($group, $locale, $name): TenantSelfEntry {
             $entry = new TenantSelfEntry(['entry_key' => $group, 'locale' => $locale, 'name' => $name]);
+            $entry->setConnection($this->connection);
             $entry->forceFill(app(TenantBoundary::class)->attributes('test.entries'));
             $entry->save();
 
@@ -104,12 +120,16 @@ final class TenantTranslationScenario
     {
         return $this->run($tenant, function () use ($tenant, $slug, $translations): TenantArticle {
             $article = new TenantArticle(['slug' => $slug]);
+            $article->setConnection($this->connection);
 
             return $article->getConnection()->transaction(function () use ($tenant, $article, $translations): TenantArticle {
                 $article->forceFill(app(TenantBoundary::class)->attributes('test.articles'));
                 $article->save();
                 foreach ($translations as $locale => $attributes) {
-                    TenantArticleTranslation::forceCreate(['tenant_id' => $tenant, 'article_id' => $article->getKey(), 'locale' => $locale, 'name' => $attributes['name']]);
+                    $translation = new TenantArticleTranslation;
+                    $translation->setConnection($this->connection);
+                    $translation->forceFill(['tenant_id' => $tenant, 'article_id' => $article->getKey(), 'locale' => $locale, 'name' => $attributes['name']]);
+                    $translation->save();
                 }
 
                 return $article;
