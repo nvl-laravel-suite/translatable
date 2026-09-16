@@ -29,7 +29,7 @@ final class TenantTranslationScenario
     public const string B = '00000000-0000-4000-8000-00000000000b';
 
     /** Adopt the three explicit fixture resources before any tenant read. */
-    public static function install(): self
+    public static function install(bool $mixedEntries = false): self
     {
         config(['tenancy.enabled' => true]);
         app()->instance(TenantDirectory::class, new class implements TenantDirectory
@@ -45,12 +45,13 @@ final class TenantTranslationScenario
             }
         });
         $resources = app(TenantResourceRegistry::class);
-        $resources->register(new TenantResourceDefinition('test.entries', 'test', TenantSelfEntry::class));
+        $resources->register(new TenantResourceDefinition('test.entries', 'test', TenantSelfEntry::class, allowsPlatformRows: $mixedEntries));
         $resources->register(new TenantResourceDefinition('test.articles', 'test', TenantArticle::class));
         $resources->register(new TenantResourceDefinition(
             'test.article-translations', 'test', TenantArticleTranslation::class,
             TenantResourceKind::Inherited, 'test.articles', 'article',
         ));
+        app()->instance(TenantTranslationFixtureAdoptionAdapter::class, new TenantTranslationFixtureAdoptionAdapter($mixedEntries));
         app(TenantAdoptionRegistry::class)->register('translation-fixtures', TenantTranslationFixtureAdoptionAdapter::class);
         $operation = new PlatformOperation('fixture.adoption', 'test', 'fixture');
         $coordinator = app(TenantAdoptionCoordinator::class);

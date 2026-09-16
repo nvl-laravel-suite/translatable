@@ -7,7 +7,6 @@ namespace Nvl\Translatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
@@ -40,6 +39,8 @@ trait SelfTranslatable
     private ?SelfTranslatableOptions $resolvedLegacyTranslationOptions = null;
 
     protected ?string $currentLocale = null;
+
+    private bool $buildingLocaleCandidates = false;
 
     /**
      * Boot creation-time structural validation for self-translated rows.
@@ -237,17 +238,27 @@ trait SelfTranslatable
         $table = $this->getTable();
         $groupKey = $definition->groupKey;
         $localeKey = $definition->localeKey;
-        $visibleRows = (clone $query)
-            ->withoutGlobalScopesExcept([SoftDeletingScope::class])
-            ->select(["{$table}.{$groupKey}", "{$table}.{$localeKey}"])
-            ->reorder()
-            ->toBase()
-            ->cloneWithout(['limit', 'offset']);
+        $ownership = app(TranslationOwnership::class);
+        $query = $ownership->query($query, $definition);
+        if ($this->buildingLocaleCandidates) {
+            return $query;
+        }
+        $identityColumns = [...$ownership->partitionColumns($definition), $groupKey];
+        $this->buildingLocaleCandidates = true;
+        try {
+            $visibleRows = (clone $query)
+                ->select(array_map(static fn (string $column): string => "{$table}.{$column}", [...$identityColumns, $localeKey]))
+                ->reorder()
+                ->toBase()
+                ->cloneWithout(['limit', 'offset']);
+        } finally {
+            $this->buildingLocaleCandidates = false;
+        }
 
         return $query->where(function (Builder $preferenceQuery) use (
             $candidates,
             $table,
-            $groupKey,
+            $identityColumns,
             $localeKey,
             $visibleRows,
         ): void {
@@ -259,7 +270,7 @@ trait SelfTranslatable
                     $candidate,
                     $preferredLocales,
                     $table,
-                    $groupKey,
+                    $identityColumns,
                     $localeKey,
                     $index,
                     $visibleRows,
@@ -279,15 +290,17 @@ trait SelfTranslatable
                             $alias,
                             $preferredLocales,
                             $table,
-                            $groupKey,
+                            $identityColumns,
                             $localeKey,
                             $visibleRows,
                         ): void {
                             $subquery
                                 ->selectRaw('1')
                                 ->fromSub($visibleRows, $alias)
-                                ->whereColumn("{$alias}.{$groupKey}", "{$table}.{$groupKey}")
                                 ->whereIn("{$alias}.{$localeKey}", $preferredLocales);
+                            foreach ($identityColumns as $column) {
+                                $subquery->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
+                            }
                         },
                     );
                 });
@@ -304,6 +317,7 @@ trait SelfTranslatable
     public function scopeTranslationGroup(Builder $query, int|string $groupValue): Builder
     {
         $definition = $this->translationDefinition();
+        $query = app(TranslationOwnership::class)->query($query, $definition);
         $query->getQuery()->where($definition->groupKey, $groupValue);
 
         return $query;
@@ -331,7 +345,7 @@ trait SelfTranslatable
         int|string|null $groupValue = null,
     ): Builder {
         if ($groupValue === null) {
-            return $query;
+            return app(TranslationOwnership::class)->query($query, $this->translationDefinition());
         }
 
         return $this->scopeTranslationGroup($query, $groupValue);
@@ -411,22 +425,7 @@ trait SelfTranslatable
      */
     public function getAllTranslations(): Collection
     {
-        app(TranslationOwnership::class)->assertOwner($this, $this->translationDefinition());
-        $definition = $this->translationDefinition();
-        $groupValue = $this->translationResourceKey();
-
-        if ($this->relationLoaded('translations')) {
-            $rows = $this->getRelation('translations');
-
-            if ($rows instanceof Collection) {
-                return $rows;
-            }
-        }
-
-        return static::query()
-            ->where($definition->groupKey, $groupValue)
-            ->orderBy($definition->localeKey)
-            ->get();
+        return app(SelfTranslationStore::class)->rows($this);
     }
 
     /**
@@ -487,11 +486,17 @@ trait SelfTranslatable
      */
     public function getTranslatedAttributes(?string $locale = null): array
     {
-        return collect($this->translationDefinition()->fields)
-            ->mapWithKeys(fn (string $field): array => [
-                $field => $this->translated($field, $locale),
-            ])
-            ->all();
+        $definition = $this->translationDefinition();
+        $rows = $this->getAllTranslations();
+        $requested = $definition->assertLocale($locale ?? $this->getCurrentLocale());
+        $chain = $definition->localeChain($requested, $this->persistedLocales($rows));
+        $resolver = new TranslationResolver;
+        $values = [];
+        foreach ($definition->fields as $field) {
+            $values[$field] = $resolver->resolve($rows, $definition, $field, $requested, $chain)->value;
+        }
+
+        return $values;
     }
 
     /**
@@ -510,10 +515,7 @@ trait SelfTranslatable
         $definition = $this->translationDefinition();
         $resolvedLocale = $definition->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return static::query()
-            ->where($definition->groupKey, $this->translationResourceKey())
-            ->where($definition->localeKey, $resolvedLocale)
-            ->exists();
+        return $this->getAllTranslations()->contains($definition->localeKey, $resolvedLocale);
     }
 
     /**
@@ -557,7 +559,7 @@ trait SelfTranslatable
             );
         }
 
-        return $query
+        return app(TranslationOwnership::class)->query($query, $definition)
             ->where($definition->localeKey, $resolvedLocale)
             ->where($field, $normalizedOperator, $value);
     }
@@ -577,7 +579,7 @@ trait SelfTranslatable
         $definition->assertTranslatableField($field);
         $resolvedLocale = $definition->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return $query
+        return app(TranslationOwnership::class)->query($query, $definition)
             ->where($definition->localeKey, $resolvedLocale)
             ->whereNull($field);
     }
@@ -597,7 +599,7 @@ trait SelfTranslatable
         $definition->assertTranslatableField($field);
         $resolvedLocale = $definition->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return $query
+        return app(TranslationOwnership::class)->query($query, $definition)
             ->where($definition->localeKey, $resolvedLocale)
             ->whereNotNull($field);
     }
@@ -788,8 +790,23 @@ trait SelfTranslatable
     private function refreshLoadedSelfTranslations(SelfTranslationStore $store): void
     {
         if ($this->relationLoaded('translations')) {
+            $this->unsetRelation('translations');
             $this->setRelation('translations', $store->rows($this));
         }
+    }
+
+    /**
+     * Revalidate centrally loaded group rows before native property access.
+     *
+     * @param  string  $key
+     */
+    public function getRelationValue($key): mixed
+    {
+        if ($key === 'translations' && $this->relationLoaded($key)) {
+            return $this->getAllTranslations();
+        }
+
+        return parent::getRelationValue($key);
     }
 
     /**

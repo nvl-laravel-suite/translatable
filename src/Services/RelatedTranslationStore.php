@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Services;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
@@ -88,16 +90,99 @@ final readonly class RelatedTranslationStore
      */
     public function rows(Model&TranslatableModel $owner): Collection
     {
-        $this->ownership->assertOwner($owner, $owner->translationDefinition());
         if ($owner->relationLoaded('translations')) {
             $rows = $owner->getRelation('translations');
 
             if ($rows instanceof Collection) {
+                $this->assertRows($owner, $owner->translationDefinition(), $rows);
+
                 return $rows;
             }
         }
 
         return $owner->translations()->get();
+    }
+
+    /**
+     * Admit canonical owner identity once for a related-row read operation.
+     *
+     * @return array<string, mixed>
+     */
+    public function ownerIdentity(Model $owner, RelatedTranslationDefinition $definition): array
+    {
+        $attributes = $this->ownership->childAttributes($owner, $definition);
+        $key = $owner->getAttribute($definition->ownerKey);
+        if ($attributes !== []) {
+            if ($owner->isDirty([$owner->getKeyName(), $definition->ownerKey, 'tenant_id', 'ownership_key'])) {
+                throw new TenantBoundaryViolation('Translation owner identity cannot be changed in memory.');
+            }
+            $key = $owner->getConnection()->table($owner->getTable())
+                ->where($owner->getKeyName(), $owner->getRawOriginal($owner->getKeyName()))
+                ->value($definition->ownerKey);
+            if ($key !== $owner->getRawOriginal($definition->ownerKey)) {
+                throw new TenantBoundaryViolation('The canonical translation owner identity has changed.');
+            }
+        }
+
+        return [$definition->foreignKey($owner->getTable()) => $key, ...$attributes];
+    }
+
+    /**
+     * Validate all loaded children against one admitted canonical owner in memory.
+     *
+     * @param  Collection<int, Model>  $rows
+     */
+    public function assertRows(Model $owner, RelatedTranslationDefinition $definition, Collection $rows): void
+    {
+        $identity = $this->ownerIdentity($owner, $definition);
+        $canonical = new $definition->translationModel;
+        if ($canonical->getConnectionName() === null) {
+            $canonical->setConnection($owner->getConnectionName());
+        }
+        $this->scopeQuery($canonical->newQuery(), $owner, $definition);
+        foreach ($rows as $row) {
+            if ($row::class !== $canonical::class || $row->getTable() !== $canonical->getTable()
+                || $row->getConnection() !== $canonical->getConnection()) {
+                throw new TenantBoundaryViolation('Loaded translations do not use canonical related storage.');
+            }
+            foreach ($identity as $column => $value) {
+                if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
+                    throw new TenantBoundaryViolation('Loaded translations do not belong to the canonical owner.');
+                }
+            }
+        }
+    }
+
+    /**
+     * Admit actual child storage and correlate every child to its canonical owner partition.
+     *
+     * @template T of Model
+     *
+     * @param  Builder<T>  $query
+     * @return Builder<T>
+     */
+    public function scopeQuery(Builder $query, Model $owner, RelatedTranslationDefinition $definition): Builder
+    {
+        if ($definition->ownershipResource === null) {
+            $this->ownership->query($owner->newQuery(), $definition);
+
+            return $this->ownership->query($query, $definition);
+        }
+        $canonical = new $definition->translationModel;
+        if ($query->getModel()::class !== $canonical::class || $query->getModel()->getTable() !== $canonical->getTable()
+            || $query->getQuery()->from !== $canonical->getTable()
+            || $query->getQuery()->getConnection() !== $owner->getConnection()) {
+            throw new TenantBoundaryViolation('Translation relations require canonical owner storage.');
+        }
+        $owners = $this->ownership->query($owner->newQuery(), $definition);
+        $owners->select($owner->qualifyColumn($definition->ownerKey));
+        $owners->whereColumn($owner->qualifyColumn($definition->ownerKey), $query->qualifyColumn($definition->foreignKey($owner->getTable())));
+        foreach ($this->ownership->partitionColumns($definition) as $column) {
+            $owners->whereColumn($owner->qualifyColumn($column), $query->qualifyColumn($column));
+        }
+        $query->whereExists($owners->toBase());
+
+        return $query;
     }
 
     /**

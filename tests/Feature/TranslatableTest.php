@@ -415,3 +415,18 @@ test('legacy related options preserve modern fallback and mutation policies', fu
     expect($roundTripped->fallbackPolicy)->toBe(TranslationFallbackPolicy::AnyAvailable)
         ->and($roundTripped->mutationPolicy)->toBe(TranslationMutationPolicy::DomainActionOnly);
 });
+
+test('it resolves all fields from one admitted translation collection', function (): void {
+    $owner = TestTranslatableModel::create(['slug' => 'one-collection']);
+    app(TranslationWriter::class)->upsert($owner, 'en', ['name' => 'Name', 'description' => 'Description']);
+    app(TranslationOwnership::class)->assertOwner($owner, $owner->translationDefinition());
+    $owner->unsetRelation('translations');
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    try {
+        expect($owner->getTranslatedAttributes('en'))->toBe(['name' => 'Name', 'description' => 'Description']);
+        expect(DB::getQueryLog())->toHaveCount(1);
+    } finally {
+        DB::disableQueryLog();
+    }
+});

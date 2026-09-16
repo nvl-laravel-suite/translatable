@@ -2,9 +2,16 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Tenancy\Exceptions\TenantConfigurationInvalid;
+use Nvl\Tenancy\Exceptions\TenantContextMissing;
 use Nvl\Tenancy\Exceptions\TenantSchemaNotReady;
+use Nvl\Tenancy\Services\TenantBoundary;
+use Nvl\Tenancy\Services\TenantRunner;
+use Nvl\Tenancy\ValueObjects\PlatformOperation;
+use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslatableOptions;
@@ -16,6 +23,8 @@ use Nvl\Translatable\Tests\Support\TenantArticle;
 use Nvl\Translatable\Tests\Support\TenantArticleTranslation;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
+use Nvl\Translatable\Tests\Support\TestTranslatableModel;
+use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
 use Nvl\Translatable\TranslatableOptions;
 
 it('rejects a retained owner even when its translations were loaded in another tenant', function (): void {
@@ -211,3 +220,265 @@ it('rejects changed canonical inherited parent identity when locking', function 
         });
     });
 })->with(['dirty parent foreign key' => false, 'persisted same-tenant parent switch' => true]);
+
+it('chooses A fallback even when B has the requested locale for the same group', function (): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'shared-handle', 'en', 'A fallback');
+    $s->entry($s::B, 'shared-handle', 'bg', 'B requested');
+
+    $names = $s->run($s::A, fn () => TenantSelfEntry::query()->locale('bg')->pluck('name')->all());
+
+    expect($names)->toBe(['A fallback']);
+});
+
+it('partitions self helpers and scopes even without a model tenant scope', function (): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->entry($s::A, 'same', 'en', 'A fallback');
+    $s->entry($s::B, 'same', 'bg', 'B requested');
+    $s->run($s::A, function () use ($a): void {
+        expect($a->getAllTranslations()->pluck('name')->all())->toBe(['A fallback']);
+        expect($a->hasTranslation('bg'))->toBeFalse();
+        expect(app(SelfTranslationStore::class)->rows($a)->pluck('name')->all())->toBe(['A fallback']);
+        expect(TenantSelfEntry::query()->withAllTranslations()->pluck('name')->all())->toBe(['A fallback']);
+        expect(TenantSelfEntry::query()->translationGroup('same')->pluck('name')->all())->toBe(['A fallback']);
+        expect(TenantSelfEntry::query()->where('name', 'B requested')->orWhere('name', 'A fallback')->whereTranslated('name', 'A fallback', locale: 'en')->pluck('name')->all())->toBe(['A fallback']);
+    });
+});
+
+it('rejects injected translations from another partition or owner', function (string $strategy, string $read, bool $sameTenant): void {
+    $s = TenantTranslationScenario::install();
+    if ($strategy === 'self') {
+        $owner = $s->entry($s::A, 'same', 'en', 'A');
+        $other = $s->entry($sameTenant ? $s::A : $s::B, $sameTenant ? 'other' : 'same', 'bg', 'Other');
+        $rows = new Collection([$other]);
+    } else {
+        $owner = $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
+        $other = $s->article($sameTenant ? $s::A : $s::B, 'other', ['bg' => ['name' => 'Other']]);
+        $rows = $s->run($sameTenant ? $s::A : $s::B, fn () => $other->translations()->get());
+    }
+    $owner->setRelation('translations', $rows);
+    expect(fn () => $s->run($s::A, fn () => match ($read) {
+        'all' => $owner->getAllTranslations(),
+        'exact' => $owner->getTranslation('bg', false),
+        'has' => $owner->hasTranslation('bg'),
+        'locales' => $owner->getAvailableLocales(),
+        'fields' => $owner->getTranslatedAttributes('bg'),
+        'store' => app($strategy === 'self' ? SelfTranslationStore::class : RelatedTranslationStore::class)->rows($owner),
+    }))->toThrow(TenantBoundaryViolation::class);
+})->with(['self' => ['self'], 'related' => ['related']])->with(['all', 'exact', 'has', 'locales', 'fields', 'store'])->with(['other tenant' => false, 'other owner' => true]);
+
+it('keeps native related reads inside the canonical owner partition', function (string $read): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
+    $s->article($s::B, 'same', ['en' => ['name' => 'B']]);
+    TenantArticleTranslation::forceCreate(['tenant_id' => $s::B, 'article_id' => $a->id, 'locale' => 'bg', 'name' => 'B injected']);
+    $s->run($s::A, function () use ($a, $read): void {
+        $names = match ($read) {
+            'lazy' => $a->translations->pluck('name')->all(),
+            'explicit' => $a->translations()->get()->pluck('name')->all(),
+            'eager' => TenantArticle::query()->whereKey($a->id)->with('translations')->firstOrFail()->translations->pluck('name')->all(),
+            'one' => [$a->translation('bg')->first()?->getAttribute('name')],
+            'existence' => TenantArticle::query()->whereTranslated('name', 'B injected', locale: 'bg')->pluck('slug')->all(),
+        };
+        expect($names)->toBe(match ($read) {
+            'one' => [null], 'existence' => [], default => ['A']
+        });
+    });
+})->with(['lazy', 'explicit', 'eager', 'one', 'existence']);
+
+it('rejects retained native related reads in another context without resetting scoped instances', function (string $read): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
+    $s->run($s::A, fn () => $a->load(['translations', 'translation']));
+    expect(fn () => $s->run($s::B, fn () => match ($read) {
+        'lazy' => $a->translations,
+        'one' => $a->translation,
+        'explicit' => $a->translations()->get(),
+        'eager' => $a->load('translations'),
+    }))->toThrow(TenantBoundaryViolation::class);
+})->with(['lazy', 'one', 'explicit', 'eager']);
+
+it('applies each fallback policy only to A rows', function (TranslationFallbackPolicy $policy, string $storedLocale, ?string $expected): void {
+    $s = TenantTranslationScenario::install();
+    config(['translatable.locales' => ['en', 'bg', 'fr'], 'translatable.fallback.policy' => $policy->value]);
+    $entry = $s->entry($s::A, 'same', $storedLocale, 'A fallback');
+    $s->entry($s::B, 'same', 'bg', 'B requested');
+    $article = $s->article($s::A, 'same', [$storedLocale => ['name' => 'A fallback']]);
+    $s->article($s::B, 'same', ['bg' => ['name' => 'B requested']]);
+    $s->run($s::A, function () use ($entry, $article, $expected): void {
+        expect(TenantSelfEntry::query()->locale('bg')->pluck('name')->all())->toBe($expected === null ? [] : [$expected]);
+        expect($entry->translated('name', 'bg'))->toBe($expected);
+        expect($article->translated('name', 'bg'))->toBe($expected);
+        expect($entry->getTranslation('bg', false))->toBeNull();
+        expect($article->getTranslation('bg', false))->toBeNull();
+    });
+})->with([
+    'exact' => [TranslationFallbackPolicy::ExactOnly, 'en', null],
+    'configured' => [TranslationFallbackPolicy::Configured, 'en', 'A fallback'],
+    'any available' => [TranslationFallbackPolicy::AnyAvailable, 'fr', 'A fallback'],
+]);
+
+it('preserves null fallback and intentional empty strings within A', function (?string $value, string $expected): void {
+    $s = TenantTranslationScenario::install();
+    $entry = $s->entry($s::A, 'same', 'en', 'A fallback');
+    $localized = $s->entry($s::A, 'same', 'bg', 'temporary');
+    $localized->name = $value;
+    $localized->save();
+    $s->entry($s::B, 'same', 'en', 'B fallback');
+    $article = $s->article($s::A, 'same', ['en' => ['name' => 'A fallback'], 'bg' => ['name' => 'temporary']]);
+    TenantArticleTranslation::query()->where('article_id', $article->id)->where('locale', 'bg')->update(['name' => $value]);
+    $s->article($s::B, 'same', ['en' => ['name' => 'B fallback']]);
+    $s->run($s::A, function () use ($entry, $article, $expected): void {
+        expect($entry->translated('name', 'bg'))->toBe($expected);
+        expect($article->translated('name', 'bg'))->toBe($expected);
+    });
+})->with(['null falls back' => [null, 'A fallback'], 'empty is intentional' => ['', '']]);
+
+it('retains caller and global visibility constraints in preferred locale candidates', function (bool $global): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'same', 'en', 'A visible');
+    $s->entry($s::A, 'same', 'bg', 'A hidden');
+    $s->entry($s::B, 'same', 'bg', 'B visible');
+    if ($global) {
+        TenantSelfEntry::addGlobalScope('fixture_visibility', fn (Builder $query) => $query->where('name', '!=', 'A hidden'));
+    }
+    $s->run($s::A, function () use ($global): void {
+        $query = TenantSelfEntry::query();
+        if (! $global) {
+            $query->where('name', '!=', 'A hidden');
+        }
+        expect($query->orderByDesc('locale')->limit(1)->locale('bg')->pluck('name')->all())->toBe(['A visible']);
+    });
+})->with(['caller' => false, 'global' => true]);
+
+it('excludes a deleted A locale until restored without selecting B', function (): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'same', 'en', 'A fallback');
+    $deleted = $s->entry($s::A, 'same', 'bg', 'A restored');
+    $s->entry($s::B, 'same', 'bg', 'B requested');
+    $deleted->delete();
+    $s->run($s::A, function () use ($deleted): void {
+        expect(TenantSelfEntry::query()->locale('bg')->pluck('name')->all())->toBe(['A fallback']);
+        $deleted->restore();
+        expect(TenantSelfEntry::query()->locale('bg')->pluck('name')->all())->toBe(['A restored']);
+    });
+});
+
+it('rejects dirty owner identity across related and self reads', function (string $strategy, string $column): void {
+    $s = TenantTranslationScenario::install();
+    $owner = $strategy === 'self' ? $s->entry($s::A, 'same', 'en', 'A') : $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
+    $s->run($s::A, function () use ($owner, $column): void {
+        $owner->setRelation('translations', $owner->getAllTranslations());
+        $owner->setAttribute($column, TenantTranslationScenario::B);
+        expect(fn () => $owner->getAllTranslations())->toThrow(TenantBoundaryViolation::class);
+    });
+})->with(['self' => ['self'], 'related' => ['related']])->with(['tenant_id', 'id']);
+
+it('fails closed without context for row scopes and loaded native reads', function (): void {
+    $s = TenantTranslationScenario::install();
+    $entry = $s->entry($s::A, 'same', 'en', 'A');
+    $article = $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
+    $s->run($s::A, fn () => $article->load(['translations', 'translation']));
+    foreach ([
+        fn () => TenantSelfEntry::query()->locale('en')->get(),
+        fn () => TenantSelfEntry::query()->withAllTranslations()->get(),
+        fn () => TenantArticle::query()->whereTranslated('name', 'A')->get(),
+        fn () => TenantArticle::query()->orderByTranslated('name')->get(),
+        fn () => $entry->hasTranslation('en'),
+        fn () => $article->translations,
+        fn () => $article->translation,
+        fn () => $article->translations()->get(),
+        fn () => $article->getTranslatedAttributes(),
+    ] as $read) {
+        expect($read)->toThrow(TenantContextMissing::class);
+    }
+});
+
+it('keeps combined native eager relations and caller conditions intact', function (): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'first', ['en' => ['name' => 'A en'], 'bg' => ['name' => 'A bg']]);
+    $b = $s->article($s::B, 'other', ['en' => ['name' => 'B']]);
+    $s->run($s::A, function () use ($a, $b): void {
+        $loaded = TenantArticle::query()->whereKey($a->id)->with(['translations', 'translation'])->firstOrFail();
+        expect($loaded->relationLoaded('translations'))->toBeTrue();
+        expect($loaded->relationLoaded('translation'))->toBeTrue();
+        expect($loaded->translations->pluck('name')->sort()->values()->all())->toBe(['A bg', 'A en']);
+        expect($loaded->translation->getAttribute('name'))->toBe('A en');
+        expect(TenantArticle::query()->whereKey($b->id)->orWhere('slug', 'first')->whereTranslated('name', 'A en', locale: 'en')->pluck('id')->all())->toBe([$a->id]);
+        expect(TenantArticle::query()->whereKey($b->id)->whereTranslated('name', 'A en', locale: 'en')->get())->toBeEmpty();
+        expect(TenantArticle::query()->withAllTranslations()->pluck('id')->all())->toBe([$a->id]);
+        expect(TenantArticle::query()->orderByTranslated('name', locale: 'en')->pluck('id')->all())->toBe([$a->id]);
+    });
+});
+
+it('keeps explicit and eager relation OR predicates within the owner boundary', function (bool $eager): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', ['en' => ['name' => 'A']]);
+    $b = $s->article($s::B, 'b', ['bg' => ['name' => 'B']]);
+    $s->run($s::A, function () use ($a, $b, $eager): void {
+        $names = $eager
+            ? $a->load(['translations' => fn ($query) => $query->orWhere('article_id', $b->id)])->translations->pluck('name')->all()
+            : $a->translations()->orWhere('article_id', $b->id)->pluck('name')->all();
+        expect($names)->toBe(['A']);
+    });
+})->with(['explicit' => false, 'eager' => true]);
+
+it('admits actual related storage independently of an unadopted legacy owner connection', function (bool $loaded): void {
+    TenantTranslationScenario::install();
+    config(['tenancy.enabled' => false, 'database.connections.legacy' => ['driver' => 'sqlite', 'database' => ':memory:']]);
+    app()->forgetScopedInstances();
+    $owner = new class extends TestTranslatableModel
+    {
+        /** Declare a legacy translation model explicitly on the adopted default connection. */
+        protected function defineTranslations(): RelatedTranslationDefinition
+        {
+            $child = new class extends TestTranslatableModelTranslation
+            {
+                /** Retain the configured translation connection even when the owner differs. */
+                public function getConnectionName(): ?string
+                {
+                    return app('db')->getDefaultConnection();
+                }
+            };
+
+            return new RelatedTranslationDefinition($child::class, ['name'], foreignKey: 'test_translatable_model_id');
+        }
+    };
+    $owner->setConnection('legacy');
+    app(TranslationOwnership::class)->assertOwner($owner, $owner->translationDefinition());
+    if ($loaded) {
+        $owner->setRelation('translations', new Collection);
+    }
+    expect(fn () => $owner->getAllTranslations())->toThrow(TenantSchemaNotReady::class);
+})->with(['query' => false, 'loaded' => true]);
+
+it('rejects injected native singular and grouped relation properties', function (string $relation): void {
+    $s = TenantTranslationScenario::install();
+    if ($relation === 'self') {
+        $a = $s->entry($s::A, 'same', 'en', 'A');
+        $b = $s->entry($s::B, 'same', 'en', 'B');
+        $a->setRelation('translations', new Collection([$b]));
+        expect(fn () => $s->run($s::A, fn () => $a->translations))->toThrow(TenantBoundaryViolation::class);
+    } else {
+        $a = $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
+        $b = $s->article($s::B, 'same', ['en' => ['name' => 'B']]);
+        $a->setRelation('translation', $s->run($s::B, fn () => $b->translation('en')->firstOrFail()));
+        expect(fn () => $s->run($s::A, fn () => $a->translation))->toThrow(TenantBoundaryViolation::class);
+    }
+})->with(['self' => ['self'], 'singular' => ['singular']]);
+
+it('correlates mixed platform locale candidates through a non-null ownership key', function (): void {
+    $s = TenantTranslationScenario::install(mixedEntries: true);
+    $s->entry($s::A, 'same', 'bg', 'A requested');
+    $s->entry($s::B, 'same', 'bg', 'B requested');
+    app(TenantRunner::class)->platform(new PlatformOperation('fixture.adoption', 'test', 'fixture'), function (): void {
+        $owner = new TenantSelfEntry(['entry_key' => 'same', 'locale' => 'en', 'name' => 'Platform fallback']);
+        $owner->forceFill(app(TenantBoundary::class)->attributes('test.entries'))->save();
+        expect(TenantSelfEntry::query()->locale('bg')->pluck('name')->all())->toBe(['Platform fallback']);
+        $preferred = new TenantSelfEntry(['entry_key' => 'same', 'locale' => 'bg', 'name' => 'Platform requested']);
+        $preferred->forceFill(app(TenantBoundary::class)->attributes('test.entries'))->save();
+        expect(TenantSelfEntry::query()->locale('bg')->pluck('name')->all())->toBe(['Platform requested']);
+        expect($owner->getAllTranslations()->pluck('name')->all())->toBe(['Platform requested', 'Platform fallback']);
+    });
+    expect($s->run($s::A, fn () => TenantSelfEntry::query()->locale('bg')->pluck('name')->all()))->toBe(['A requested']);
+});

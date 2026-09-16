@@ -7,6 +7,7 @@ namespace Nvl\Translatable;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -79,7 +80,7 @@ final readonly class TranslationResourceDefinition
             $definition->assertModel($model);
 
             if ($model->getConnection()->getName()
-                !== $model->translations()->getRelated()->getConnection()->getName()) {
+                !== Relation::noConstraints(fn () => $model->translations()->getRelated())->getConnection()->getName()) {
                 throw TranslationResourceException::invalid(
                     "Translation resource [{$this->key}] owner and translation models must use the same connection.",
                 );
@@ -164,7 +165,7 @@ final readonly class TranslationResourceDefinition
         $model = $this->newModel();
         $definition = $model->translationDefinition();
         $translationTable = $model instanceof TranslatableModel
-            ? $model->translations()->getRelated()->getTable()
+            ? Relation::noConstraints(fn () => $model->translations()->getRelated())->getTable()
             : $model->getTable();
         $locales = match (true) {
             $defaultLocales === [] => $definition->supportedLocales(),

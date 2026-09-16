@@ -9,6 +9,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Event;
 use LogicException;
@@ -173,7 +174,7 @@ final readonly class TranslationResourceGatherer
             return $ownerAvailable;
         }
 
-        $translationModel = $model->translations()->getRelated();
+        $translationModel = Relation::noConstraints(fn () => $model->translations()->getRelated());
 
         return $translationModel->getConnection()
             ->getSchemaBuilder()
@@ -192,7 +193,7 @@ final readonly class TranslationResourceGatherer
         }
 
         $translationTable = $model instanceof TranslatableModel
-            ? $model->translations()->getRelated()->getTable()
+            ? Relation::noConstraints(fn () => $model->translations()->getRelated())->getTable()
             : $model->getTable();
 
         throw TranslationResourceException::unavailable(

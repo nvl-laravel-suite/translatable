@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\SelfTranslationDefinition;
@@ -131,12 +132,44 @@ final readonly class SelfTranslationStore
      */
     public function rows(Model&SelfTranslatableModel $owner): Collection
     {
-        $this->ownership->assertOwner($owner, $owner->translationDefinition());
         $definition = $owner->translationDefinition();
-        $query = $owner->newQuery();
-        $query->getQuery()
-            ->where($definition->groupKey, $owner->translationResourceKey())
-            ->orderBy($definition->localeKey);
+        $identity = $this->ownership->childAttributes($owner, $definition);
+        $group = $owner->translationResourceKey();
+        if ($identity !== []) {
+            if ($owner->isDirty([$owner->getKeyName(), $definition->groupKey, $definition->localeKey, 'tenant_id', 'ownership_key'])) {
+                throw new TenantBoundaryViolation('Translation group identity cannot be changed in memory.');
+            }
+            $group = $owner->getConnection()->table($owner->getTable())
+                ->where($owner->getKeyName(), $owner->getRawOriginal($owner->getKeyName()))
+                ->value($definition->groupKey);
+            if ($group !== $owner->getRawOriginal($definition->groupKey)) {
+                throw new TenantBoundaryViolation('The canonical translation group identity has changed.');
+            }
+        }
+        $identity[$definition->groupKey] = $group;
+        if ($owner->relationLoaded('translations')) {
+            $rows = $owner->getRelation('translations');
+            if ($rows instanceof Collection) {
+                foreach ($rows as $row) {
+                    if ($row::class !== $owner::class || $row->getTable() !== $owner->getTable()
+                        || $row->getConnection() !== $owner->getConnection()) {
+                        throw new TenantBoundaryViolation('Loaded translations do not use canonical group storage.');
+                    }
+                    foreach ($identity as $column => $value) {
+                        if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
+                            throw new TenantBoundaryViolation('Loaded translations do not belong to the canonical group.');
+                        }
+                    }
+                }
+
+                return $rows;
+            }
+        }
+        $query = $this->ownership->query($owner->newQuery(), $definition);
+        foreach ($identity as $column => $value) {
+            $query->getQuery()->where($column, $value);
+        }
+        $query->orderBy($definition->localeKey);
 
         return $query->get();
     }

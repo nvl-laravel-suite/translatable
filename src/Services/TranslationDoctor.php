@@ -6,6 +6,7 @@ namespace Nvl\Translatable\Services;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -272,7 +273,7 @@ final readonly class TranslationDoctor
         Builder $ownerSchema,
         array &$errors,
     ): void {
-        $translationModel = $model->translations()->getRelated();
+        $translationModel = Relation::noConstraints(fn () => $model->translations()->getRelated());
         $translationSchema = $translationModel->getConnection()->getSchemaBuilder();
         $translationTable = $translationModel->getTable();
         $foreignKey = $definition->foreignKey($model->getTable());

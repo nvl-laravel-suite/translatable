@@ -12,7 +12,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
+use Nvl\Translatable\Relations\TranslationHasMany;
+use Nvl\Translatable\Relations\TranslationHasOne;
 use Nvl\Translatable\Services\ContentLocale;
+use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationResolver;
 
@@ -102,10 +105,15 @@ trait Translatable
     {
         $options = $this->translationDefinition();
 
-        return $this->hasMany(
-            $options->translationModel,
-            $options->foreignKey($this->getTable()),
+        $related = $this->newRelatedInstance($options->translationModel);
+
+        return new TranslationHasMany(
+            $related->newQuery(),
+            $this,
+            $related->qualifyColumn($options->foreignKey($this->getTable())),
             $options->ownerKey,
+            app(RelatedTranslationStore::class),
+            $options,
         );
     }
 
@@ -119,11 +127,16 @@ trait Translatable
         $options = $this->translationDefinition();
         $resolvedLocale = $options->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return $this->hasOne(
-            $options->translationModel,
-            $options->foreignKey($this->getTable()),
+        $related = $this->newRelatedInstance($options->translationModel);
+
+        return (new TranslationHasOne(
+            $related->newQuery(),
+            $this,
+            $related->qualifyColumn($options->foreignKey($this->getTable())),
             $options->ownerKey,
-        )->where($options->localeKey, $resolvedLocale);
+            app(RelatedTranslationStore::class),
+            $options,
+        ))->where($options->localeKey, $resolvedLocale);
     }
 
     /**
@@ -237,11 +250,17 @@ trait Translatable
      */
     public function getTranslatedAttributes(?string $locale = null): array
     {
-        return collect($this->translationDefinition()->fields)
-            ->mapWithKeys(fn (string $field): array => [
-                $field => $this->translated($field, $locale),
-            ])
-            ->all();
+        $definition = $this->translationDefinition();
+        $rows = $this->translationRows();
+        $requested = $definition->assertLocale($locale ?? $this->getCurrentLocale());
+        $chain = $definition->localeChain($requested, $this->persistedLocales($rows));
+        $resolver = new TranslationResolver;
+        $values = [];
+        foreach ($definition->fields as $field) {
+            $values[$field] = $resolver->resolve($rows, $definition, $field, $requested, $chain)->value;
+        }
+
+        return $values;
     }
 
     /**
@@ -280,7 +299,7 @@ trait Translatable
     {
         $this->translationDefinition()->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return $query->with('translations');
+        return app(TranslationOwnership::class)->query($query, $this->translationDefinition())->with('translations');
     }
 
     /**
@@ -291,7 +310,7 @@ trait Translatable
      */
     public function scopeWithAllTranslations(Builder $query): Builder
     {
-        return $query->with('translations');
+        return app(TranslationOwnership::class)->query($query, $this->translationDefinition())->with('translations');
     }
 
     /**
@@ -325,7 +344,7 @@ trait Translatable
             );
         }
 
-        return $query->whereHas(
+        return app(TranslationOwnership::class)->query($query, $this->translationDefinition())->whereHas(
             'translations',
             static fn (Builder $translationQuery): Builder => $translationQuery
                 ->where($options->localeKey, $resolvedLocale)
@@ -348,7 +367,7 @@ trait Translatable
         $definition->assertTranslatableField($field);
         $resolvedLocale = $definition->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return $query->whereHas(
+        return app(TranslationOwnership::class)->query($query, $this->translationDefinition())->whereHas(
             'translations',
             static fn (Builder $translationQuery): Builder => $translationQuery
                 ->where($definition->localeKey, $resolvedLocale)
@@ -371,7 +390,7 @@ trait Translatable
         $definition->assertTranslatableField($field);
         $resolvedLocale = $definition->assertLocale($locale ?? $this->getCurrentLocale());
 
-        return $query->whereHas(
+        return app(TranslationOwnership::class)->query($query, $this->translationDefinition())->whereHas(
             'translations',
             static fn (Builder $translationQuery): Builder => $translationQuery
                 ->where($definition->localeKey, $resolvedLocale)
@@ -402,7 +421,8 @@ trait Translatable
             );
         }
 
-        $translationModel = new $options->translationModel;
+        $query = app(TranslationOwnership::class)->query($query, $options);
+        $translationModel = $this->newRelatedInstance($options->translationModel);
         $translationTable = $translationModel->getTable();
         $ownerTable = $this->getTable();
         $foreignKey = $options->foreignKey($ownerTable);
@@ -415,6 +435,8 @@ trait Translatable
             )
             ->where($options->localeKey, $resolvedLocale)
             ->limit(1);
+
+        app(RelatedTranslationStore::class)->scopeQuery($translationValueQuery, $this, $options);
 
         return $query->orderBy($translationValueQuery, $normalizedDirection);
     }
@@ -460,16 +482,23 @@ trait Translatable
      */
     private function translationRows(): Collection
     {
-        app(TranslationOwnership::class)->assertOwner($this, $this->translationDefinition());
-        if ($this->relationLoaded('translations')) {
-            $translations = $this->getRelation('translations');
+        return app(RelatedTranslationStore::class)->rows($this);
+    }
 
-            if ($translations instanceof Collection) {
-                return $translations;
-            }
+    /**
+     * Revalidate loaded native translation properties in the current tenant context.
+     *
+     * @param  string  $key
+     */
+    public function getRelationValue($key): mixed
+    {
+        if (in_array($key, ['translations', 'translation'], true) && $this->relationLoaded($key)) {
+            $loaded = $this->getRelation($key);
+            $rows = $loaded instanceof Collection ? $loaded : new Collection($loaded instanceof Model ? [$loaded] : []);
+            app(RelatedTranslationStore::class)->assertRows($this, $this->translationDefinition(), $rows);
         }
 
-        return $this->translations()->get();
+        return parent::getRelationValue($key);
     }
 
     /**

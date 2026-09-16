@@ -16,6 +16,9 @@ use RuntimeException;
 /** Owns only the explicit test tables and their tenant constraints. */
 final class TenantTranslationFixtureAdoptionAdapter implements TenantAdoptionAdapter
 {
+    /** Select the domain fixture schema explicitly before real adoption. */
+    public function __construct(private readonly bool $mixedEntries = false) {}
+
     /** @return list<string> */
     public function resources(): array
     {
@@ -26,15 +29,18 @@ final class TenantTranslationFixtureAdoptionAdapter implements TenantAdoptionAda
     public function prepare(TenantAdoptionPlan $plan): void
     {
         if (! Schema::hasTable('tenant_test_entries')) {
-            Schema::create('tenant_test_entries', static function (Blueprint $table): void {
+            Schema::create('tenant_test_entries', function (Blueprint $table): void {
                 $table->uuid('id')->primary();
-                $table->uuid('tenant_id');
+                $table->uuid('tenant_id')->nullable($this->mixedEntries);
+                if ($this->mixedEntries) {
+                    $table->string('ownership_key');
+                }
                 $table->string('entry_key');
                 $table->string('locale', 35);
                 $table->string('name')->nullable();
                 $table->timestamps();
                 $table->softDeletes();
-                $table->unique(['tenant_id', 'entry_key', 'locale']);
+                $table->unique([$this->mixedEntries ? 'ownership_key' : 'tenant_id', 'entry_key', 'locale']);
             });
         }
         if (! Schema::hasTable('tenant_test_articles')) {
@@ -78,16 +84,20 @@ final class TenantTranslationFixtureAdoptionAdapter implements TenantAdoptionAda
     {
         $errors = [];
         $contracts = [
-            'tenant_test_entries' => [['id', 'tenant_id', 'entry_key', 'locale', 'name', 'created_at', 'updated_at', 'deleted_at'], ['tenant_id', 'entry_key', 'locale']],
+            'tenant_test_entries' => [['id', 'tenant_id', 'entry_key', 'locale', 'name', 'created_at', 'updated_at', 'deleted_at'], [$this->mixedEntries ? 'ownership_key' : 'tenant_id', 'entry_key', 'locale']],
             'tenant_test_articles' => [['id', 'tenant_id', 'slug', 'created_at', 'updated_at'], ['tenant_id', 'id']],
             'tenant_test_article_translations' => [['id', 'tenant_id', 'article_id', 'locale', 'name', 'created_at', 'updated_at'], ['tenant_id', 'article_id', 'locale']],
         ];
+        if ($this->mixedEntries) {
+            $contracts['tenant_test_entries'][0][] = 'ownership_key';
+        }
         foreach ($contracts as $table => [$columns, $unique]) {
             if (! Schema::hasColumns($table, $columns) || ! Schema::hasIndex($table, $unique, 'unique')) {
                 $errors[] = $table.'.schema';
             }
             $ownership = array_values(array_filter(Schema::getColumns($table), static fn (array $column): bool => $column['name'] === 'tenant_id'));
-            if (count($ownership) !== 1 || $ownership[0]['nullable']) {
+            $nullable = $this->mixedEntries && $table === 'tenant_test_entries';
+            if (count($ownership) !== 1 || $ownership[0]['nullable'] !== $nullable) {
                 $errors[] = $table.'.ownership';
             }
         }
