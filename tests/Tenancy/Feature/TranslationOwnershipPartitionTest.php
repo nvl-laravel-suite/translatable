@@ -158,3 +158,29 @@ it('rejects heterogeneous polymorphic root partition schemas', function (): void
             ->toThrow(TenantConfigurationInvalid::class, 'consistent partition schema');
     });
 });
+
+it('rejects changed canonical polymorphic parent identity when locking', function (string $change): void {
+    $scenario = TenantTranslationScenario::install();
+    adoptTranslationPartitionFixtures(false);
+    $scenario->run($scenario::A, function () use ($change): void {
+        $owner = new TenantMixedTranslationOwner;
+        $owner->forceFill(app(TenantBoundary::class)->attributes('mixed.owners'))->save();
+        $other = new TenantMixedTranslationOwner;
+        $other->forceFill(app(TenantBoundary::class)->attributes('mixed.owners'))->save();
+        $child = new TenantPolymorphicTranslationChild;
+        $child->forceFill(['tenant_id' => $owner->tenant_id, 'owner_type' => $owner::class, 'owner_id' => $owner->id])->save();
+        $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name'], ownershipResource: 'mixed.children');
+        $ownership = app(TranslationOwnership::class);
+        $child->getConnection()->transaction(function () use ($child, $other, $change, $definition, $ownership): void {
+            expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
+            if ($change === 'persisted parent') {
+                DB::table($child->getTable())->where('id', $child->id)->update(['owner_id' => $other->id]);
+            } elseif ($change === 'dirty type') {
+                $child->owner_type = 'unregistered';
+            } else {
+                $child->owner_id = $other->id;
+            }
+            expect(fn () => $ownership->lockOwner($child, $definition))->toThrow(TenantBoundaryViolation::class);
+        });
+    });
+})->with(['dirty parent', 'dirty type', 'persisted parent']);

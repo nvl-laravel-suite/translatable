@@ -190,3 +190,24 @@ it('bounds cold legacy adoption probes once per actual connection', function ():
     $firstConnection->disableQueryLog();
     $secondConnection->disableQueryLog();
 });
+
+it('rejects changed canonical inherited parent identity when locking', function (bool $persistedChange): void {
+    $scenario = TenantTranslationScenario::install();
+    $article = $scenario->article($scenario::A, 'original', ['en' => ['name' => 'Original']]);
+    $other = $scenario->article($scenario::A, 'other', []);
+    $scenario->run($scenario::A, function () use ($article, $other, $persistedChange): void {
+        $child = $article->translations()->firstOrFail();
+        $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name'], ownershipResource: 'test.article-translations');
+        $ownership = app(TranslationOwnership::class);
+        $child->getConnection()->transaction(function () use ($child, $other, $definition, $ownership, $persistedChange): void {
+            $child->setAttribute('name', 'Unpersisted content');
+            expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
+            if ($persistedChange) {
+                $child->getConnection()->table($child->getTable())->where('id', $child->getKey())->update(['article_id' => $other->id]);
+            } else {
+                $child->setAttribute('article_id', $other->id);
+            }
+            expect(fn () => $ownership->lockOwner($child, $definition))->toThrow(TenantBoundaryViolation::class);
+        });
+    });
+})->with(['dirty parent foreign key' => false, 'persisted same-tenant parent switch' => true]);

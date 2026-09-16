@@ -82,6 +82,20 @@ final readonly class TranslationOwnership
             throw new TenantBoundaryViolation('Translation writes require an owner connection transaction.');
         }
         $identity = [$owner->getKeyName(), 'tenant_id', 'ownership_key'];
+        if ($definition->ownershipResource !== null) {
+            $resource = $this->resources->get($definition->ownershipResource);
+            if ($resource->kind === TenantResourceKind::Inherited) {
+                $model = new $resource->model;
+                $relation = Relation::noConstraints(fn () => $model->{$resource->parentRelation}());
+                if (! $relation instanceof BelongsTo) {
+                    throw new TenantConfigurationInvalid('Translation inheritance requires a belongs-to parent.');
+                }
+                $identity[] = $relation->getForeignKeyName();
+                if ($relation instanceof MorphTo) {
+                    $identity[] = $relation->getMorphType();
+                }
+            }
+        }
         if ($definition instanceof SelfTranslationDefinition) {
             $identity = [...$identity, $definition->groupKey, $definition->localeKey];
         } elseif ($definition instanceof RelatedTranslationDefinition) {
