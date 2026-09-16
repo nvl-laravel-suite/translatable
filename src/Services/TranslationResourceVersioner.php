@@ -62,14 +62,16 @@ final class TranslationResourceVersioner
         }
 
         ksort($rows);
-        $updatedAtColumn = $owner->getUpdatedAtColumn();
         $state = [
             'id' => $owner->translationResourceKey(),
-            'updatedAt' => $this->normalize(
-                $updatedAtColumn !== null ? $owner->getAttribute($updatedAtColumn) : null,
-            ),
-            'translations' => $rows,
         ];
+        if (! $definition instanceof SelfTranslationDefinition) {
+            $updatedAtColumn = $owner->getUpdatedAtColumn();
+            $state['updatedAt'] = $this->normalize(
+                $updatedAtColumn !== null ? $owner->getAttribute($updatedAtColumn) : null,
+            );
+        }
+        $state['translations'] = $rows;
 
         return hash('sha256', (string) json_encode(
             $state,

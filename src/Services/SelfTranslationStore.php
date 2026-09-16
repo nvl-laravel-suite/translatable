@@ -33,6 +33,7 @@ final readonly class SelfTranslationStore
         string $locale,
         array $attributes,
     ): Model {
+        $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
         $shared = [];
 
@@ -84,6 +85,7 @@ final readonly class SelfTranslationStore
         SelfTranslationDefinition $definition,
         array $locales,
     ): void {
+        $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
 
         if ($locales === [] && ! $definition->allowDeletingLastTranslation) {
@@ -117,6 +119,7 @@ final readonly class SelfTranslationStore
         SelfTranslationDefinition $definition,
         string $locale,
     ): bool {
+        $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
         $query = $this->groupQuery($canonicalOwner, $definition);
         $rows = (clone $query)->lockForUpdate()->get();
@@ -244,6 +247,24 @@ final readonly class SelfTranslationStore
         }
 
         return $query->first();
+    }
+
+    /**
+     * Bind mutation metadata to the owner's complete canonical definition.
+     */
+    private function canonicalDefinition(
+        Model&SelfTranslatableModel $owner,
+        SelfTranslationDefinition $supplied,
+    ): SelfTranslationDefinition {
+        $canonical = $owner->translationDefinition();
+
+        if (get_mangled_object_vars($canonical) !== get_mangled_object_vars($supplied)) {
+            throw new TranslatableException(
+                'Self-translation mutations require the owner canonical definition.',
+            );
+        }
+
+        return $canonical;
     }
 
     /**

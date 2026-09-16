@@ -39,6 +39,7 @@ final readonly class RelatedTranslationStore
         string $locale,
         array $attributes,
     ): Model {
+        $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
         $relation = $canonicalOwner->translations();
         $identity = [
@@ -70,6 +71,7 @@ final readonly class RelatedTranslationStore
         RelatedTranslationDefinition $definition,
         array $locales,
     ): void {
+        $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
         $query = $this->constrainOwnership(
             $canonicalOwner->translations(),
@@ -91,6 +93,7 @@ final readonly class RelatedTranslationStore
         RelatedTranslationDefinition $definition,
         string $locale,
     ): bool {
+        $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
         $query = $this->constrainOwnership(
             $canonicalOwner->translations(),
@@ -259,6 +262,24 @@ final readonly class RelatedTranslationStore
         }
 
         return $lookup->first();
+    }
+
+    /**
+     * Bind mutation metadata to the owner's complete canonical definition.
+     */
+    private function canonicalDefinition(
+        Model&TranslatableModel $owner,
+        RelatedTranslationDefinition $supplied,
+    ): RelatedTranslationDefinition {
+        $canonical = $owner->translationDefinition();
+
+        if (get_mangled_object_vars($canonical) !== get_mangled_object_vars($supplied)) {
+            throw new TranslatableException(
+                'Related translation mutations require the owner canonical definition.',
+            );
+        }
+
+        return $canonical;
     }
 
     /**

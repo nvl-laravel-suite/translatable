@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
@@ -14,7 +15,9 @@ use Nvl\Tenancy\Services\TenantBoundary;
 use Nvl\Tenancy\Services\TenantInstallationState;
 use Nvl\Tenancy\Services\TenantRunner;
 use Nvl\Tenancy\ValueObjects\PlatformOperation;
+use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
+use Nvl\Translatable\Data\DeleteTranslationLocaleData;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationMutationData;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
@@ -28,6 +31,7 @@ use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\SelfTranslationStore;
 use Nvl\Translatable\Services\TranslationOwnership;
+use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TenantArticle;
@@ -223,6 +227,114 @@ it('assigns server-derived identity last in package store write paths', function
     ]);
 });
 
+it('rejects forged self definitions at every public store mutation entry', function (string $mutation): void {
+    $s = TenantTranslationScenario::install();
+    $source = $s->entry($s::A, 'source', 'en', 'source');
+    $victim = $s->entry($s::A, 'victim', 'bg', 'source');
+    $forged = new SelfTranslationDefinition(
+        groupKey: 'name',
+        fields: ['forged_value'],
+        localeKey: 'entry_key',
+        allowDeletingLastTranslation: true,
+        ownershipResource: 'test.entries',
+    );
+
+    expect(fn () => $s->run($s::A, fn () => $source->getConnection()->transaction(
+        fn () => match ($mutation) {
+            'upsert' => app(SelfTranslationStore::class)->upsert($source, $forged, 'victim', []),
+            'replace' => app(SelfTranslationStore::class)->deleteExcept($source, $forged, ['source']),
+            'delete' => app(SelfTranslationStore::class)->delete($source, $forged, 'victim'),
+        },
+    )))->toThrow(TranslatableException::class, 'canonical definition')
+        ->and($s->run($s::A, fn () => TenantSelfEntry::query()->whereKey($victim->id)->exists()))
+        ->toBeTrue();
+})->with(['upsert', 'replace', 'delete']);
+
+it('rejects forged related definitions at every public store mutation entry', function (
+    string $mutation,
+    string $forgery,
+): void {
+    $s = TenantTranslationScenario::install();
+    $source = $s->article($s::A, 'source', []);
+    $target = $s->run($s::A, function () use ($s): TenantArticle {
+        $target = new TenantArticle(['slug' => 'target']);
+        $target->id = $s::A;
+        $target->forceFill(app(TenantBoundary::class)->attributes('test.articles'));
+        $target->save();
+
+        return $target;
+    });
+    $forged = match ($forgery) {
+        'ownerKey' => new RelatedTranslationDefinition(
+            translationModel: TenantArticleTranslation::class,
+            fields: ['name'],
+            foreignKey: 'article_id',
+            ownerKey: 'tenant_id',
+            ownershipResource: 'test.articles',
+        ),
+        'foreignKey' => new RelatedTranslationDefinition(
+            translationModel: TenantArticleTranslation::class,
+            fields: ['name'],
+            foreignKey: 'tenant_id',
+            ownershipResource: 'test.articles',
+        ),
+    };
+
+    expect(fn () => $s->run($s::A, fn () => $source->getConnection()->transaction(
+        fn () => match ($mutation) {
+            'upsert' => app(RelatedTranslationStore::class)->upsert(
+                $source,
+                $forged,
+                'bg',
+                ['name' => 'Redirected'],
+            ),
+            'replace' => app(RelatedTranslationStore::class)->deleteExcept($source, $forged, ['en']),
+            'delete' => app(RelatedTranslationStore::class)->delete($source, $forged, 'en'),
+        },
+    )))->toThrow(TranslatableException::class, 'canonical definition')
+        ->and($s->run($s::A, fn () => $target->translations()->count()))->toBe(0);
+})->with(['upsert', 'replace', 'delete'])->with([
+    'owner key' => 'ownerKey',
+    'foreign key' => 'foreignKey',
+]);
+
+it('accepts reconstructed definitions that are structurally identical to the owner declarations', function (): void {
+    $s = TenantTranslationScenario::install();
+    $selfOwner = $s->entry($s::A, 'self-equivalent', 'en', 'English');
+    $relatedOwner = $s->article($s::A, 'related-equivalent', []);
+    $selfDefinition = new SelfTranslationDefinition(
+        groupKey: 'entry_key',
+        fields: ['name'],
+        ownershipResource: 'test.entries',
+    );
+    $relatedDefinition = new RelatedTranslationDefinition(
+        translationModel: TenantArticleTranslation::class,
+        fields: ['name'],
+        foreignKey: 'article_id',
+        ownershipResource: 'test.articles',
+    );
+
+    $self = $s->run($s::A, fn () => $selfOwner->getConnection()->transaction(
+        fn () => app(SelfTranslationStore::class)->upsert(
+            $selfOwner,
+            $selfDefinition,
+            'bg',
+            ['name' => 'Bulgarian'],
+        ),
+    ));
+    $related = $s->run($s::A, fn () => $relatedOwner->getConnection()->transaction(
+        fn () => app(RelatedTranslationStore::class)->upsert(
+            $relatedOwner,
+            $relatedDefinition,
+            'bg',
+            ['name' => 'Related Bulgarian'],
+        ),
+    ));
+
+    expect($self->locale)->toBe('bg')
+        ->and($related->locale)->toBe('bg');
+});
+
 it('rejects quiet mutations of every persisted self-row identity column', function (
     string $column,
     string $value,
@@ -319,6 +431,84 @@ it('keeps central optimistic version checks inside the tenant write transaction'
         $actor,
     )))->toThrow(TranslationResourceException::class, 'changed after it was read');
 });
+
+it('returns a reusable central self version after updating the current representative', function (): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'versioned', 'en', 'Initial');
+    $actor = TranslationActorData::system('test');
+    $sync = app(SyncTranslationResourceAction::class);
+
+    try {
+        Carbon::setTestNow('2026-09-16 12:00:01');
+        $initialVersion = $s->run($s::A, fn () => app(TranslationResourceGatherer::class)
+            ->find('test.entries', 'versioned', $actor)->version);
+        $first = $s->run($s::A, fn () => $sync->execute(
+            'test.entries',
+            'versioned',
+            new TranslationMutationData(['en' => ['name' => 'First']], $initialVersion),
+            $actor,
+        ));
+
+        Carbon::setTestNow('2026-09-16 12:00:02');
+        $second = $s->run($s::A, fn () => $sync->execute(
+            'test.entries',
+            'versioned',
+            new TranslationMutationData(['bg' => ['name' => 'Second']], $first->version),
+            $actor,
+        ));
+
+        expect($second->version)->toHaveLength(64);
+    } finally {
+        Carbon::setTestNow();
+    }
+});
+
+it('returns a reusable central self version after :dataset changes the representative', function (string $mutation): void {
+    $s = TenantTranslationScenario::install();
+    $actor = TranslationActorData::system('test');
+    $sync = app(SyncTranslationResourceAction::class);
+
+    try {
+        Carbon::setTestNow('2026-09-16 12:00:00');
+        $s->entry($s::A, 'representative', 'en', 'English');
+        Carbon::setTestNow('2026-09-16 12:00:01');
+        $s->entry($s::A, 'representative', 'bg', 'Bulgarian');
+        $initialVersion = $s->run($s::A, fn () => app(TranslationResourceGatherer::class)
+            ->find('test.entries', 'representative', $actor)->version);
+
+        Carbon::setTestNow('2026-09-16 12:00:02');
+        $version = $s->run($s::A, fn () => match ($mutation) {
+            'replace' => $sync->execute(
+                'test.entries',
+                'representative',
+                new TranslationMutationData(
+                    ['en' => ['name' => 'Only English']],
+                    $initialVersion,
+                    TranslationSyncMode::Replace,
+                ),
+                $actor,
+            )->version,
+            'delete' => app(DeleteTranslationResourceLocaleAction::class)->execute(
+                'test.entries',
+                'representative',
+                new DeleteTranslationLocaleData('bg', $initialVersion),
+                $actor,
+            )->version,
+        });
+
+        Carbon::setTestNow('2026-09-16 12:00:03');
+        $next = $s->run($s::A, fn () => $sync->execute(
+            'test.entries',
+            'representative',
+            new TranslationMutationData(['en' => ['name' => 'Next']], $version),
+            $actor,
+        ));
+
+        expect($next->version)->toHaveLength(64);
+    } finally {
+        Carbon::setTestNow();
+    }
+})->with(['replace', 'delete']);
 
 it('rejects undeclared ownership in enabled contexts', function (): void {
     $s = TenantTranslationScenario::install();
