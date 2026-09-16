@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\DB;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Tenancy\Exceptions\TenantConfigurationInvalid;
 use Nvl\Tenancy\Exceptions\TenantContextMissing;
 use Nvl\Tenancy\Exceptions\TenantSchemaNotReady;
 use Nvl\Tenancy\Services\TenantBoundary;
+use Nvl\Tenancy\Services\TenantInstallationState;
 use Nvl\Tenancy\Services\TenantRunner;
 use Nvl\Tenancy\ValueObjects\PlatformOperation;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
@@ -422,6 +424,123 @@ it('keeps explicit and eager relation OR predicates within the owner boundary', 
         expect($names)->toBe(['A']);
     });
 })->with(['explicit' => false, 'eager' => true]);
+
+it('keeps explicit relation ownership after caller scope removal and OR widening', function (bool $allScopes): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', ['en' => ['name' => 'A']]);
+    $b = $s->article($s::B, 'b', ['en' => ['name' => 'B']]);
+
+    $s->run($s::A, function () use ($a, $b, $allScopes): void {
+        $relation = $a->translations();
+        $allScopes
+            ? $relation->withoutGlobalScopes()
+            : $relation->withoutGlobalScope('translation_owner');
+
+        expect($relation->orWhere('article_id', $b->id)->pluck('name')->all())->toBe(['A']);
+    });
+})->with(['named ownership scope' => false, 'all scopes' => true]);
+
+it('does not hydrate widened eager rows from another ownership partition', function (): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', ['en' => ['name' => 'A']]);
+    $b = $s->article($s::B, 'b', ['en' => ['name' => 'B']]);
+    $hydrated = [];
+    TenantArticleTranslation::retrieved(static function (TenantArticleTranslation $translation) use (&$hydrated): void {
+        $hydrated[] = $translation->name;
+    });
+
+    $s->run($s::A, function () use ($a, $b, &$hydrated): void {
+        $a->load(['translations' => fn ($query) => $query->orWhere('article_id', $b->id)]);
+
+        expect($hydrated)->toBe(['A']);
+    });
+});
+
+it('keeps widened existence callbacks inside the final ownership boundary', function (): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', []);
+    $b = $s->article($s::B, 'b', ['en' => ['name' => 'B']]);
+
+    $exists = $s->run($s::A, fn (): bool => TenantArticle::query()
+        ->whereKey($a->id)
+        ->whereHas('translations', fn (Builder $query): Builder => $query->orWhere('article_id', $b->id))
+        ->exists());
+
+    expect($exists)->toBeFalse();
+});
+
+it('keeps late query callbacks inside the final ownership boundary', function (): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', ['en' => ['name' => 'A']]);
+    $b = $s->article($s::B, 'b', ['en' => ['name' => 'B']]);
+
+    $names = $s->run($s::A, fn (): array => $a->translations()
+        ->beforeQuery(fn ($query) => $query->orWhere('article_id', $b->id))
+        ->pluck('name')
+        ->all());
+
+    expect($names)->toBe(['A']);
+});
+
+it('keeps final native relation owner constraints exact within one partition', function (string $read): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', $read === 'existence' ? [] : ['en' => ['name' => 'A']]);
+    $b = $s->article($s::A, 'b', ['en' => ['name' => 'B']]);
+
+    $result = $s->run($s::A, function () use ($a, $b, $read): array|bool {
+        if ($read === 'explicit') {
+            return $a->translations()->orWhere('article_id', $b->id)->pluck('name')->all();
+        }
+        if ($read === 'eager') {
+            $hydrated = [];
+            TenantArticleTranslation::retrieved(static function (TenantArticleTranslation $translation) use (&$hydrated): void {
+                $hydrated[] = $translation->name;
+            });
+            $a->load(['translations' => fn ($query) => $query->orWhere('article_id', $b->id)]);
+
+            return $hydrated;
+        }
+
+        return TenantArticle::query()
+            ->whereKey($a->id)
+            ->whereHas('translations', fn (Builder $query): Builder => $query->orWhere('article_id', $b->id))
+            ->exists();
+    });
+
+    expect($result)->toBe($read === 'existence' ? false : ['A']);
+})->with(['explicit', 'eager', 'existence']);
+
+it('rejects related storage alias replacement after eager and existence callbacks', function (string $read): void {
+    $s = TenantTranslationScenario::install();
+    $a = $s->article($s::A, 'a', ['en' => ['name' => 'A']]);
+
+    expect(fn () => $s->run($s::A, fn () => match ($read) {
+        'eager' => $a->load(['translations' => fn ($query) => $query->from('tenant_test_article_translations as replaced')]),
+        'existence' => TenantArticle::query()->whereHas(
+            'translations',
+            fn (Builder $query): Builder => $query->from('tenant_test_article_translations as replaced'),
+        )->exists(),
+    }))->toThrow(TenantBoundaryViolation::class);
+})->with(['eager', 'existence']);
+
+it('independently admits declared child storage for query and loaded reads', function (string $marker, bool $loaded): void {
+    $s = TenantTranslationScenario::install();
+    $article = $s->article($s::A, 'a', ['en' => ['name' => 'A']]);
+    $markers = DB::table('nvl_tenancy_installation_state')->where('resource', 'test.article-translations');
+    if ($marker === 'missing') {
+        $markers->delete();
+    } else {
+        $markers->update(['configuration_hash' => str_repeat('0', 64)]);
+    }
+    app(TenantInstallationState::class)->invalidate();
+    if ($loaded) {
+        $article->setRelation('translations', new Collection);
+    }
+
+    expect(fn () => $s->run($s::A, fn () => $loaded
+        ? $article->getAllTranslations()
+        : $article->translations()->get()))->toThrow(TenantSchemaNotReady::class);
+})->with(['missing' => ['missing'], 'incompatible' => ['incompatible']])->with(['query' => false, 'loaded empty' => true]);
 
 it('admits actual related storage independently of an unadopted legacy owner connection', function (bool $loaded): void {
     TenantTranslationScenario::install();

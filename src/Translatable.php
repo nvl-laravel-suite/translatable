@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Nvl\Translatable\Relations\TranslationHasMany;
 use Nvl\Translatable\Relations\TranslationHasOne;
+use Nvl\Translatable\Relations\TranslationRelationBuilder;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\TranslationOwnership;
@@ -106,13 +107,14 @@ trait Translatable
         $options = $this->translationDefinition();
 
         $related = $this->newRelatedInstance($options->translationModel);
+        $store = app(RelatedTranslationStore::class);
 
         return new TranslationHasMany(
-            $related->newQuery(),
+            TranslationRelationBuilder::guarded($related->newQuery(), $this, $store, $options),
             $this,
             $related->qualifyColumn($options->foreignKey($this->getTable())),
             $options->ownerKey,
-            app(RelatedTranslationStore::class),
+            $store,
             $options,
         );
     }
@@ -128,13 +130,14 @@ trait Translatable
         $resolvedLocale = $options->assertLocale($locale ?? $this->getCurrentLocale());
 
         $related = $this->newRelatedInstance($options->translationModel);
+        $store = app(RelatedTranslationStore::class);
 
         return (new TranslationHasOne(
-            $related->newQuery(),
+            TranslationRelationBuilder::guarded($related->newQuery(), $this, $store, $options),
             $this,
             $related->qualifyColumn($options->foreignKey($this->getTable())),
             $options->ownerKey,
-            app(RelatedTranslationStore::class),
+            $store,
             $options,
         ))->where($options->localeKey, $resolvedLocale);
     }

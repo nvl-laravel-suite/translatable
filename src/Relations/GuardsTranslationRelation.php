@@ -6,6 +6,7 @@ namespace Nvl\Translatable\Relations;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use LogicException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\Services\RelatedTranslationStore;
 
@@ -34,18 +35,9 @@ trait GuardsTranslationRelation
         parent::__construct($query, $parent, $foreignKey, $localKey);
     }
 
-    /** Add canonical owner and partition predicates to an explicit or lazy relation. */
+    /** Add native relationship key predicates before final guarded execution. */
     public function addConstraints(): void
     {
-        if (static::$constraints) {
-            $this->query->withGlobalScope('translation_owner', function (Builder $query): void {
-                $this->translationStore->scopeQuery($query, $this->parent, $this->translationDefinition);
-                $identity = $this->translationStore->ownerIdentity($this->parent, $this->translationDefinition);
-                foreach ($identity as $column => $value) {
-                    $query->where($this->related->qualifyColumn($column), $value);
-                }
-            });
-        }
         parent::addConstraints();
     }
 
@@ -56,10 +48,10 @@ trait GuardsTranslationRelation
      */
     public function addEagerConstraints(array $models): void
     {
-        $this->translationStore->scopeQuery($this->query, $this->parent, $this->translationDefinition);
-        foreach ($models as $model) {
-            $this->translationStore->ownerIdentity($model, $this->translationDefinition);
+        if (! $this->query instanceof TranslationRelationBuilder) {
+            throw new LogicException('Translation eager loading requires its guarded builder.');
         }
+        $this->query->restrictToOwners($models);
         parent::addEagerConstraints($models);
     }
 
@@ -69,12 +61,28 @@ trait GuardsTranslationRelation
      * @param  Builder<TRelatedModel>  $query
      * @param  Builder<TDeclaringModel>  $parentQuery
      * @param  array<array-key, string>|string  $columns
-     * @return Builder<TRelatedModel>
+     * @return TranslationRelationBuilder<TRelatedModel>
      */
-    public function getRelationExistenceQuery(Builder $query, Builder $parentQuery, $columns = ['*']): Builder
-    {
-        $this->translationStore->scopeQuery($query, $this->parent, $this->translationDefinition);
+    public function getRelationExistenceQuery(
+        Builder $query,
+        Builder $parentQuery,
+        $columns = ['*'],
+    ): TranslationRelationBuilder {
+        $guardedQuery = TranslationRelationBuilder::guarded(
+            $query,
+            $this->parent,
+            $this->translationStore,
+            $this->translationDefinition,
+        );
 
-        return parent::getRelationExistenceQuery($query, $parentQuery, $columns);
+        $query = parent::getRelationExistenceQuery($guardedQuery, $parentQuery, $columns);
+        if ($query !== $guardedQuery) {
+            throw new LogicException('Translation existence queries require their guarded builder.');
+        }
+
+        return $guardedQuery->restrictToExistence(
+            $this->getQualifiedParentKeyName(),
+            $this->getExistenceCompareKey(),
+        );
     }
 }

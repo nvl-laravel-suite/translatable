@@ -10,6 +10,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Tenancy\Services\TenantBoundary;
+use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
@@ -20,7 +22,11 @@ use Nvl\Translatable\RelatedTranslationDefinition;
 final readonly class RelatedTranslationStore
 {
     /** Resolve the scoped domain ownership boundary. */
-    public function __construct(private TranslationOwnership $ownership) {}
+    public function __construct(
+        private TranslationOwnership $ownership,
+        private TenantBoundary $boundary,
+        private TenantResourceRegistry $resources,
+    ) {}
 
     /**
      * Create or update one related translation row using a race-safe unique-key lookup.
@@ -174,6 +180,8 @@ final readonly class RelatedTranslationStore
             || $query->getQuery()->getConnection() !== $owner->getConnection()) {
             throw new TenantBoundaryViolation('Translation relations require canonical owner storage.');
         }
+        $childResource = $this->resources->forModel($canonical);
+        $this->boundary->query($query, $childResource->key);
         $owners = $this->ownership->query($owner->newQuery(), $definition);
         $owners->select($owner->qualifyColumn($definition->ownerKey));
         $owners->whereColumn($owner->qualifyColumn($definition->ownerKey), $query->qualifyColumn($definition->foreignKey($owner->getTable())));
