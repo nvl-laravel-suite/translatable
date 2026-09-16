@@ -21,6 +21,9 @@ use UnitEnum;
  */
 final class TranslationResourceVersioner
 {
+    /** Resolve canonical ownership for every version identity. */
+    public function __construct(private readonly TranslationOwnership $ownership) {}
+
     /**
      * Calculate a version from owner and translation state.
      */
@@ -64,6 +67,7 @@ final class TranslationResourceVersioner
         ksort($rows);
         $state = [
             'id' => $owner->translationResourceKey(),
+            'ownership' => $this->ownership->partitionKey($owner, $definition),
         ];
         if (! $definition instanceof SelfTranslationDefinition) {
             $updatedAtColumn = $owner->getUpdatedAtColumn();

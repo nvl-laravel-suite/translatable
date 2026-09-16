@@ -19,6 +19,9 @@ use Nvl\Translatable\TranslationResourceDefinition;
  */
 final readonly class TranslationResourceLocator
 {
+    /** Resolve central queries through the canonical ownership boundary. */
+    public function __construct(private TranslationOwnership $ownership) {}
+
     /**
      * Build a query returning one deterministic representative per logical resource.
      *
@@ -42,8 +45,12 @@ final readonly class TranslationResourceLocator
         $table = $model->getTable();
         $alias = 'translation_representatives';
         $query = $this->applyQueryScope($resource, $model->newQuery());
+        $partitionColumns = $this->ownership->partitionColumns($definition);
         $visibleRows = (clone $query)
-            ->select(["{$table}.{$definition->groupKey}", "{$table}.{$definition->localeKey}"])
+            ->select(array_map(
+                static fn (string $column): string => "{$table}.{$column}",
+                [...$partitionColumns, $definition->groupKey, $definition->localeKey],
+            ))
             ->reorder()
             ->toBase()
             ->cloneWithout(['limit', 'offset']);
@@ -52,12 +59,17 @@ final readonly class TranslationResourceLocator
             static function (QueryBuilder $query) use (
                 $alias,
                 $definition,
+                $partitionColumns,
                 $table,
                 $visibleRows,
             ): void {
+                $query->selectRaw('1')->fromSub($visibleRows, $alias);
+
+                foreach ($partitionColumns as $column) {
+                    $query->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
+                }
+
                 $query
-                    ->selectRaw('1')
-                    ->fromSub($visibleRows, $alias)
                     ->whereColumn(
                         "{$alias}.{$definition->groupKey}",
                         "{$table}.{$definition->groupKey}",
@@ -165,6 +177,20 @@ final readonly class TranslationResourceLocator
         }
 
         if ($record instanceof TranslatableModel) {
+            $definition = $record->translationDefinition();
+
+            foreach ($records as $model) {
+                if (! $model instanceof TranslatableModel
+                    || ! $this->compatible($record, $model)
+                    || $model->translationDefinition() != $definition) {
+                    throw TranslationResourceException::invalid(
+                        'Translation preload batches require one compatible model, connection, and ownership declaration.',
+                    );
+                }
+
+                $this->ownership->partitionKey($model, $definition);
+            }
+
             $records->load('translations');
 
             return;
@@ -175,37 +201,72 @@ final readonly class TranslationResourceLocator
         }
 
         $definition = $record->translationDefinition();
-        $groupValues = $records
-            ->map(
-                static fn (Model $model): mixed => $model->getAttribute($definition->groupKey),
-            )
-            ->filter(
-                static fn (mixed $value): bool => is_int($value) || is_string($value),
-            )
-            ->values()
-            ->all();
-        $query = $record->newQuery();
-        $query->getQuery()
-            ->whereIn($definition->groupKey, $groupValues)
-            ->orderBy($definition->localeKey);
-        $rows = $query->get()->groupBy($definition->groupKey);
+        $partitionColumns = $this->ownership->partitionColumns($definition);
+        $identities = [];
 
         foreach ($records as $model) {
-            if (! $model instanceof SelfTranslatableModel) {
-                continue;
+            if (! $model instanceof SelfTranslatableModel
+                || ! $this->compatible($record, $model)
+                || $model->translationDefinition() != $definition) {
+                throw TranslationResourceException::invalid(
+                    'Translation preload batches require one compatible model, connection, and ownership declaration.',
+                );
             }
 
-            $groupValue = $model->getAttribute($definition->groupKey);
-
+            $groupValue = $model->getRawOriginal($definition->groupKey);
             if (! is_int($groupValue) && ! is_string($groupValue)) {
-                $model->setRelation('translations', new Collection);
-
-                continue;
+                throw TranslationResourceException::invalid(
+                    'Translation preload batches require persisted logical identities.',
+                );
             }
-
-            $groupRows = $rows->get($groupValue, new Collection);
-            $model->setRelation('translations', $groupRows);
+            $partitionKey = $this->ownership->partitionKey($model, $definition);
+            $identity = ['group' => $groupValue, 'partitionKey' => $partitionKey, 'model' => $model];
+            foreach ($partitionColumns as $column) {
+                $identity[$column] = $model->getRawOriginal($column);
+            }
+            $identities[] = $identity;
         }
+
+        $query = $this->ownership->query($record->newQuery(), $definition);
+        $query->where(function (Builder $nested) use ($definition, $identities, $partitionColumns): void {
+            foreach ($identities as $identity) {
+                $nested->orWhere(function (Builder $branch) use ($definition, $identity, $partitionColumns): void {
+                    foreach ($partitionColumns as $column) {
+                        $branch->where($column, $identity[$column]);
+                    }
+                    $branch->where($definition->groupKey, $identity['group']);
+                });
+            }
+        })->orderBy($definition->localeKey);
+        $rowsByPartition = [];
+        foreach ($query->get() as $row) {
+            foreach ($identities as $identity) {
+                if ($this->matchesIdentity($row, $definition->groupKey, $identity, $partitionColumns)) {
+                    $rowsByPartition[$identity['partitionKey']] ??= new Collection;
+                    $rowsByPartition[$identity['partitionKey']]->push($row);
+                    break;
+                }
+            }
+        }
+
+        foreach ($identities as $identity) {
+            $identity['model']->setRelation(
+                'translations',
+                $rowsByPartition[$identity['partitionKey']] ?? new Collection,
+            );
+        }
+    }
+
+    /**
+     * Build a visible, ownership-scoped row query without representative reduction.
+     *
+     * @return Builder<Model>
+     */
+    public function rows(TranslationResourceDefinition $resource): Builder
+    {
+        $model = $resource->newModel();
+
+        return $this->applyQueryScope($resource, $model->newQuery());
     }
 
     /**
@@ -232,23 +293,71 @@ final readonly class TranslationResourceLocator
         TranslationResourceDefinition $resource,
         Builder $query,
     ): Builder {
+        $canonical = $resource->newModel();
+        $this->assertCanonicalStorage($resource, $query, $canonical);
+        $query = $this->ownership->query($query, $canonical->translationDefinition());
+
         if ($resource->queryScope === null) {
             return $query;
         }
 
         $scoped = ($resource->queryScope)($query);
-        $originalModel = $query->getModel();
-        $scopedModel = $scoped->getModel();
+        $this->assertCanonicalStorage($resource, $scoped, $canonical);
 
-        if ($scopedModel::class !== $originalModel::class
-            || $scopedModel->getConnection()->getName()
-                !== $originalModel->getConnection()->getName()
-            || $scopedModel->getTable() !== $originalModel->getTable()) {
+        return $this->ownership->query($scoped, $canonical->translationDefinition());
+    }
+
+    /** Determine whether two batch models use the same canonical storage. */
+    private function compatible(Model $expected, Model $candidate): bool
+    {
+        return $candidate::class === $expected::class
+            && $candidate->getTable() === $expected->getTable()
+            && $candidate->getConnection() === $expected->getConnection();
+    }
+
+    /**
+     * Match one fetched row to an admitted composite logical identity.
+     *
+     * @param  array<string, mixed>  $identity
+     * @param  list<string>  $partitionColumns
+     */
+    private function matchesIdentity(
+        Model $row,
+        string $groupColumn,
+        array $identity,
+        array $partitionColumns,
+    ): bool {
+        if ($row->getRawOriginal($groupColumn) !== $identity['group']) {
+            return false;
+        }
+
+        foreach ($partitionColumns as $column) {
+            if ($row->getRawOriginal($column) !== $identity[$column]) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** Reject callback replacement or mutation away from declared canonical SQL storage. */
+    private function assertCanonicalStorage(
+        TranslationResourceDefinition $resource,
+        Builder $query,
+        Model $canonical,
+    ): void {
+        $model = $query->getModel();
+        $base = $query->getQuery();
+
+        if ($model::class !== $canonical::class
+            || $model->getTable() !== $canonical->getTable()
+            || $model->getConnection() !== $canonical->getConnection()
+            || $base->getConnection() !== $canonical->getConnection()
+            || $base->from !== $canonical->getTable()
+            || $base->unions !== null) {
             throw TranslationResourceException::invalid(
                 "Translation resource [{$resource->key}] query scope must preserve its registered model, table, and connection.",
             );
         }
-
-        return $scoped;
     }
 }

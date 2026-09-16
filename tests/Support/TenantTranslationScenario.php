@@ -60,10 +60,16 @@ final class TenantTranslationScenario
             }
         });
         $resources = app(TenantResourceRegistry::class);
-        $resources->register(new TenantResourceDefinition('test.entries', 'test', TenantSelfEntry::class, allowsPlatformRows: $mixedEntries));
-        $resources->register(new TenantResourceDefinition('test.articles', 'test', TenantArticle::class));
         $resources->register(new TenantResourceDefinition(
-            'test.article-translations', 'test', TenantArticleTranslation::class,
+            'test.entries',
+            'test',
+            TenantSelfEntry::class,
+            allowsPlatformCatalog: $mixedEntries,
+            allowsPlatformRows: $mixedEntries,
+        ));
+        $resources->register(new TenantResourceDefinition('test.articles', 'test-articles', TenantArticle::class));
+        $resources->register(new TenantResourceDefinition(
+            'test.article-translations', 'test-articles', TenantArticleTranslation::class,
             TenantResourceKind::Inherited, 'test.articles', 'article',
         ));
         app()->instance(TenantTranslationFixtureAdoptionAdapter::class, new TenantTranslationFixtureAdoptionAdapter($mixedEntries));
@@ -79,8 +85,20 @@ final class TenantTranslationScenario
         expect($coordinator->verify($plan)->passed())->toBeTrue();
         $coordinator->activate($plan, $operation);
         app(MaintenanceMode::class)->deactivate();
-        app(TranslationResourceRegistry::class)->register('test.entries', TenantSelfEntry::class, 'Entries');
-        app(TranslationResourceRegistry::class)->register('test.articles', TenantArticle::class, 'Articles');
+        app(TranslationResourceRegistry::class)->register(
+            key: 'test.entries',
+            modelClass: TenantSelfEntry::class,
+            label: 'Entries',
+            searchableColumns: ['name'],
+            displayColumns: ['name'],
+        );
+        app(TranslationResourceRegistry::class)->register(
+            key: 'test.articles',
+            modelClass: TenantArticle::class,
+            label: 'Articles',
+            searchableColumns: ['slug'],
+            displayColumns: ['slug'],
+        );
 
         return new self($connection);
     }

@@ -8,6 +8,8 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder;
+use Nvl\Tenancy\Services\TenantInstallationState;
+use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
@@ -30,6 +32,9 @@ final readonly class TranslationDoctor
     public function __construct(
         private Repository $config,
         private TranslationResourceRegistry $resources,
+        private TranslationOwnership $ownership,
+        private TenantResourceRegistry $tenantResources,
+        private TenantInstallationState $installation,
     ) {}
 
     /**
@@ -223,6 +228,7 @@ final readonly class TranslationDoctor
         $schema = $model->getConnection()->getSchemaBuilder();
         $table = $model->getTable();
         $this->assertModelLocales($resource, $definition, $errors);
+        $partitionColumns = $this->ownershipColumns($resource, $model, $definition, $errors);
 
         if (! $schema->hasTable($table)) {
             $errors[] = "Resource [{$resource->key}] is missing table [{$table}].";
@@ -239,12 +245,23 @@ final readonly class TranslationDoctor
             $resource,
             $schema,
             $table,
-            array_values(array_unique($resourceColumns)),
+            array_values(array_unique([
+                ...$resourceColumns,
+                ...$this->ownershipSchemaColumns($definition, $partitionColumns),
+            ])),
             $errors,
         );
+        $this->assertImmutableExclusions($resource, $definition, $errors);
 
         if ($definition instanceof SelfTranslationDefinition) {
-            $this->inspectSelfResource($resource, $model, $definition, $schema, $errors);
+            $this->inspectSelfResource(
+                $resource,
+                $model,
+                $definition,
+                $schema,
+                $partitionColumns,
+                $errors,
+            );
 
             return;
         }
@@ -256,6 +273,7 @@ final readonly class TranslationDoctor
                 $model,
                 $definition,
                 $schema,
+                $partitionColumns,
                 $errors,
             );
         }
@@ -264,6 +282,7 @@ final readonly class TranslationDoctor
     /**
      * Inspect a related-row resource schema and connection invariants.
      *
+     * @param  list<string>  $partitionColumns
      * @param  list<string>  $errors
      */
     private function inspectRelatedResource(
@@ -271,6 +290,7 @@ final readonly class TranslationDoctor
         Model&TranslatableModel $model,
         RelatedTranslationDefinition $definition,
         Builder $ownerSchema,
+        array $partitionColumns,
         array &$errors,
     ): void {
         $translationModel = Relation::noConstraints(fn () => $model->translations()->getRelated());
@@ -286,7 +306,14 @@ final readonly class TranslationDoctor
             $resource,
             $ownerSchema,
             $model->getTable(),
-            [$definition->ownerKey],
+            [...$this->ownershipSchemaColumns($definition, $partitionColumns), $definition->ownerKey],
+            $errors,
+        );
+        $this->assertUniqueIndex(
+            $resource,
+            $ownerSchema,
+            $model->getTable(),
+            [...$partitionColumns, $definition->ownerKey],
             $errors,
         );
 
@@ -300,14 +327,19 @@ final readonly class TranslationDoctor
             $resource,
             $translationSchema,
             $translationTable,
-            [$foreignKey, $definition->localeKey, ...$definition->fields],
+            [
+                ...$this->ownershipSchemaColumns($definition, $partitionColumns),
+                $foreignKey,
+                $definition->localeKey,
+                ...$definition->fields,
+            ],
             $errors,
         );
         $this->assertNonNullableColumns(
             $resource,
             $translationSchema,
             $translationTable,
-            [$foreignKey, $definition->localeKey],
+            [...$partitionColumns, $foreignKey, $definition->localeKey],
             $errors,
         );
         $this->assertLocaleColumn(
@@ -321,18 +353,22 @@ final readonly class TranslationDoctor
             $resource,
             $translationSchema,
             $translationTable,
-            [$foreignKey, $definition->localeKey],
+            [...$partitionColumns, $foreignKey, $definition->localeKey],
             $errors,
         );
         $foreignKeys = $translationSchema->getForeignKeys($translationTable);
+        $foreignColumns = [...$partitionColumns, $foreignKey];
+        $ownerColumns = [...$partitionColumns, $definition->ownerKey];
         $matchingForeignKey = collect($foreignKeys)->first(
-            static fn (array $key): bool => $key['columns'] === [$foreignKey]
+            static fn (array $key): bool => $key['columns'] === $foreignColumns
                 && $key['foreign_table'] === $model->getTable()
-                && $key['foreign_columns'] === [$definition->ownerKey],
+                && $key['foreign_columns'] === $ownerColumns,
         );
 
         if (! is_array($matchingForeignKey)) {
-            $errors[] = "Resource [{$resource->key}] lacks its owner foreign key.";
+            $errors[] = "Resource [{$resource->key}] table [{$translationTable}] lacks its owner foreign key and requires composite columns (["
+                .implode(', ', $foreignColumns)."] -> [{$model->getTable()}."
+                .implode(', ', $ownerColumns).']).';
         } elseif (mb_strtolower((string) $matchingForeignKey['on_delete']) !== 'cascade') {
             $errors[] = "Resource [{$resource->key}] owner foreign key must cascade on delete.";
         }
@@ -341,6 +377,7 @@ final readonly class TranslationDoctor
     /**
      * Inspect a self-row resource schema and logical-group uniqueness.
      *
+     * @param  list<string>  $partitionColumns
      * @param  list<string>  $errors
      */
     private function inspectSelfResource(
@@ -348,6 +385,7 @@ final readonly class TranslationDoctor
         Model&TranslatableResourceModel $model,
         SelfTranslationDefinition $definition,
         Builder $schema,
+        array $partitionColumns,
         array &$errors,
     ): void {
         $this->assertColumns(
@@ -357,6 +395,7 @@ final readonly class TranslationDoctor
             [
                 $definition->groupKey,
                 $definition->localeKey,
+                ...$this->ownershipSchemaColumns($definition, $partitionColumns),
                 ...$definition->fields,
                 ...$definition->sharedFields,
             ],
@@ -366,14 +405,14 @@ final readonly class TranslationDoctor
             $resource,
             $schema,
             $model->getTable(),
-            [$definition->groupKey, $definition->localeKey],
+            [...$partitionColumns, $definition->groupKey, $definition->localeKey],
             $errors,
         );
         $this->assertNonNullableColumns(
             $resource,
             $schema,
             $model->getTable(),
-            [$definition->groupKey, $definition->localeKey],
+            [...$partitionColumns, $definition->groupKey, $definition->localeKey],
             $errors,
         );
         $this->assertLocaleColumn(
@@ -383,6 +422,101 @@ final readonly class TranslationDoctor
             $definition->localeKey,
             $errors,
         );
+    }
+
+    /**
+     * Resolve declared ownership metadata and diagnose registration/adoption compatibility.
+     *
+     * @param  list<string>  $errors
+     * @return list<string>
+     */
+    private function ownershipColumns(
+        TranslationResourceDefinition $resource,
+        Model&TranslatableResourceModel $model,
+        TranslationDefinition $definition,
+        array &$errors,
+    ): array {
+        if ($definition->ownershipResource === null) {
+            if ($this->config->get('tenancy.enabled') === true) {
+                $errors[] = "Resource [{$resource->key}] must declare an ownership resource key before tenancy is enabled.";
+            }
+
+            try {
+                $this->installation->assertUnadopted($model->getConnection());
+            } catch (Throwable $exception) {
+                $errors[] = "Resource [{$resource->key}] legacy storage is incompatible with persisted adoption: {$exception->getMessage()}";
+            }
+
+            return [];
+        }
+
+        try {
+            $registered = $this->tenantResources->get($definition->ownershipResource);
+            $canonical = new $registered->model;
+            if ($canonical::class !== $model::class
+                || $canonical->getTable() !== $model->getTable()
+                || $canonical->getConnection() !== $model->getConnection()) {
+                $errors[] = "Resource [{$resource->key}] ownership [{$definition->ownershipResource}] must register its exact model, table, and connection.";
+            }
+        } catch (Throwable $exception) {
+            $errors[] = "Resource [{$resource->key}] ownership [{$definition->ownershipResource}] is not registered: {$exception->getMessage()}";
+
+            return [];
+        }
+
+        try {
+            return $this->ownership->partitionColumns($definition);
+        } catch (Throwable $exception) {
+            $errors[] = "Resource [{$resource->key}] ownership adoption is incompatible: {$exception->getMessage()}";
+
+            return [];
+        }
+    }
+
+    /**
+     * Return physical ownership columns required by declared tenant storage.
+     *
+     * @param  list<string>  $partitionColumns
+     * @return list<string>
+     */
+    private function ownershipSchemaColumns(
+        TranslationDefinition $definition,
+        array $partitionColumns,
+    ): array {
+        if ($definition->ownershipResource === null || $partitionColumns === []) {
+            return [];
+        }
+
+        return array_values(array_unique(['tenant_id', ...$partitionColumns]));
+    }
+
+    /**
+     * Diagnose structural identity mistakenly exposed as mutable translation payload.
+     *
+     * @param  list<string>  $errors
+     */
+    private function assertImmutableExclusions(
+        TranslationResourceDefinition $resource,
+        TranslationDefinition $definition,
+        array &$errors,
+    ): void {
+        $mutable = $definition->fields;
+        if ($definition instanceof SelfTranslationDefinition) {
+            $mutable = [...$mutable, ...$definition->sharedFields];
+        }
+        $structural = ['tenant_id', 'ownership_key', $definition->localeKey];
+        if ($definition instanceof SelfTranslationDefinition) {
+            $structural[] = $definition->groupKey;
+        }
+        $invalid = array_values(array_intersect(
+            array_map(mb_strtolower(...), $mutable),
+            array_map(mb_strtolower(...), $structural),
+        ));
+
+        if ($invalid !== []) {
+            $errors[] = "Resource [{$resource->key}] must exclude immutable translation identity columns: "
+                .implode(', ', $invalid).'.';
+        }
     }
 
     /**
@@ -426,7 +560,8 @@ final readonly class TranslationDoctor
         );
 
         if (! $hasUnique) {
-            $errors[] = "Resource [{$resource->key}] table [{$table}] requires a unique index on ["
+            $index = $table.'_'.implode('_', $columns).'_unique';
+            $errors[] = "Resource [{$resource->key}] table [{$table}] requires a unique index [{$index}] on ["
                 .implode(', ', $columns).'].';
         }
     }

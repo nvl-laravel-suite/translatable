@@ -13,6 +13,9 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Event;
 use LogicException;
+use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Tenancy\Services\TenantOwnershipConfiguration;
+use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -43,6 +46,9 @@ final readonly class TranslationResourceGatherer
         private TranslationResourceAuthorization $authorization,
         private TranslationResourceVersioner $versioner,
         private TranslationResourceLocator $locator,
+        private TranslationOwnership $ownership,
+        private TenantResourceRegistry $tenantResources,
+        private TenantOwnershipConfiguration $tenantOwnership,
     ) {}
 
     /**
@@ -67,14 +73,26 @@ final readonly class TranslationResourceGatherer
                 );
             }
 
-            $total = $this->logicalTotal($resource);
-            $coverage = [];
+            try {
+                $total = $this->logicalTotal($resource);
+                $coverage = [];
 
-            foreach ($metadata['locales'] as $locale) {
-                $translated = $this->translatedTotal($resource, $model, $locale);
-                $coverage[$locale] = new TranslationCoverageData(
-                    translated: $translated,
-                    missing: max(0, $total - $translated),
+                foreach ($metadata['locales'] as $locale) {
+                    $translated = $this->translatedTotal($resource, $model, $locale);
+                    $coverage[$locale] = new TranslationCoverageData(
+                        translated: $translated,
+                        missing: max(0, $total - $translated),
+                    );
+                }
+            } catch (TenantBoundaryViolation $exception) {
+                if (! $this->allowsMetadataOnlyCatalog($model)) {
+                    throw $exception;
+                }
+
+                $total = 0;
+                $coverage = array_fill_keys(
+                    $metadata['locales'],
+                    new TranslationCoverageData(translated: 0, missing: 0),
                 );
             }
 
@@ -111,7 +129,7 @@ final readonly class TranslationResourceGatherer
         }
 
         $this->applySearch($builder, $resource, $model, $query->search);
-        $this->applyMissingLocale($builder, $model, $query->missingLocale);
+        $this->applyMissingLocale($builder, $resource, $model, $query->missingLocale);
         $definition = $model->translationDefinition();
         $defaultOrderColumn = $definition instanceof SelfTranslationDefinition
             ? $definition->groupKey
@@ -226,19 +244,29 @@ final readonly class TranslationResourceGatherer
             && $definition instanceof SelfTranslationDefinition) {
             $table = $model->getTable();
             $alias = 'translation_coverage_rows';
-            $visibleRows = $model->newQuery()->select([$definition->groupKey, $definition->localeKey]);
+            $partitionColumns = $this->ownershipColumns($definition);
+            $visibleRows = $this->locator->rows($resource)->select(array_values(array_unique([
+                ...$partitionColumns,
+                $definition->groupKey,
+                $definition->localeKey,
+            ])));
 
             return $query->whereExists(
                 static function (QueryBuilder $translatedQuery) use (
                     $alias,
                     $definition,
                     $locale,
+                    $partitionColumns,
                     $table,
                     $visibleRows,
                 ): void {
+                    $translatedQuery->selectRaw('1')->fromSub($visibleRows, $alias);
+
+                    foreach ($partitionColumns as $column) {
+                        $translatedQuery->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
+                    }
+
                     $translatedQuery
-                        ->selectRaw('1')
-                        ->fromSub($visibleRows, $alias)
                         ->whereColumn(
                             "{$alias}.{$definition->groupKey}",
                             "{$table}.{$definition->groupKey}",
@@ -309,7 +337,9 @@ final readonly class TranslationResourceGatherer
         $definition = $model->translationDefinition();
         $table = $model->getTable();
         $alias = 'translation_search_rows';
-        $visibleRows = $model->newQuery()->select(array_values(array_unique([
+        $partitionColumns = $this->ownershipColumns($definition);
+        $visibleRows = $this->locator->rows($resource)->select(array_values(array_unique([
+            ...$partitionColumns,
             $definition->groupKey,
             ...$resource->searchableColumns,
         ])));
@@ -319,13 +349,18 @@ final readonly class TranslationResourceGatherer
                 $alias,
                 $definition,
                 $resource,
+                $partitionColumns,
                 $table,
                 $term,
                 $visibleRows,
             ): void {
+                $query->selectRaw('1')->fromSub($visibleRows, $alias);
+
+                foreach ($partitionColumns as $column) {
+                    $query->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
+                }
+
                 $query
-                    ->selectRaw('1')
-                    ->fromSub($visibleRows, $alias)
                     ->whereColumn(
                         "{$alias}.{$definition->groupKey}",
                         "{$table}.{$definition->groupKey}",
@@ -383,6 +418,7 @@ final readonly class TranslationResourceGatherer
      */
     private function applyMissingLocale(
         Builder $builder,
+        TranslationResourceDefinition $resource,
         Model&TranslatableResourceModel $model,
         ?string $missingLocale,
     ): void {
@@ -398,13 +434,19 @@ final readonly class TranslationResourceGatherer
         if ($model instanceof SelfTranslatableModel) {
             $table = $model->getTable();
             $alias = 'translation_missing_rows';
-            $visibleRows = $model->newQuery()->select([$model->translationDefinition()->groupKey, $definition->localeKey]);
+            $partitionColumns = $this->ownershipColumns($definition);
+            $visibleRows = $this->locator->rows($resource)->select(array_values(array_unique([
+                ...$partitionColumns,
+                $definition->groupKey,
+                $definition->localeKey,
+            ])));
 
             $builder->whereNotExists(
                 static function (QueryBuilder $query) use (
                     $alias,
                     $definition,
                     $locale,
+                    $partitionColumns,
                     $table,
                     $visibleRows,
                 ): void {
@@ -412,9 +454,13 @@ final readonly class TranslationResourceGatherer
                         throw new LogicException('Expected a self-translation definition.');
                     }
 
+                    $query->selectRaw('1')->fromSub($visibleRows, $alias);
+
+                    foreach ($partitionColumns as $column) {
+                        $query->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
+                    }
+
                     $query
-                        ->selectRaw('1')
-                        ->fromSub($visibleRows, $alias)
                         ->whereColumn(
                             "{$alias}.{$definition->groupKey}",
                             "{$table}.{$definition->groupKey}",
@@ -433,6 +479,26 @@ final readonly class TranslationResourceGatherer
                 $locale,
             ),
         );
+    }
+
+    /** Return ownership columns after the row query has admitted canonical storage. */
+    private function ownershipColumns(SelfTranslationDefinition $definition): array
+    {
+        return $this->ownership->partitionColumns($definition);
+    }
+
+    /** Admit metadata-only reporting for explicitly catalogued platform resources. */
+    private function allowsMetadataOnlyCatalog(Model&TranslatableResourceModel $model): bool
+    {
+        $ownershipResource = $model->translationDefinition()->ownershipResource;
+        if ($ownershipResource === null) {
+            return false;
+        }
+
+        $resource = $this->tenantResources->get($ownershipResource);
+
+        return $resource->allowsPlatformCatalog
+            && $this->tenantOwnership->mode($resource) === 'platform';
     }
 
     /**
