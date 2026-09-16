@@ -7,16 +7,23 @@ namespace Nvl\Translatable\Services;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Nvl\Tenancy\Contracts\TenantContext;
+use Nvl\Tenancy\Enums\TenantResourceKind;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Tenancy\Exceptions\TenantConfigurationInvalid;
+use Nvl\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Tenancy\ValueObjects\TenantContextSnapshot;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\Relations\TranslationResourceBuilder;
-use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\TranslationDefinition;
 use Nvl\Translatable\TranslationResourceDefinition;
 use WeakMap;
@@ -26,13 +33,15 @@ use WeakMap;
  */
 final readonly class TranslationResourceLocator
 {
-    /** @var WeakMap<Model, array{definition: TranslationDefinition, partitionKey: string}> */
+    /** @var WeakMap<Model, array{context: TenantContextSnapshot, definition: TranslationDefinition, partitionKey: string}> */
     private WeakMap $resolvedIdentities;
 
     /** Resolve central queries and preloads through canonical ownership boundaries. */
     public function __construct(
         private TranslationOwnership $ownership,
         private RelatedTranslationStore $relatedTranslations,
+        private TenantContext $context,
+        private TenantResourceRegistry $tenantResources,
     ) {
         $this->resolvedIdentities = new WeakMap;
     }
@@ -249,15 +258,23 @@ final readonly class TranslationResourceLocator
                 'translations',
                 $rowsByPartition[$identity['partitionKey']] ?? new Collection,
             );
+            $this->resolvedIdentities[$identity['model']] = [
+                'context' => $this->context->snapshot(),
+                'definition' => $definition,
+                'partitionKey' => $identity['partitionKey'],
+            ];
         }
     }
 
-    /** Return an operation-local canonical partition key when the locator admitted this model. */
-    public function resolvedPartitionKey(Model $model, TranslationDefinition $definition): ?string
+    /** Consume an admitted partition key only in the unchanged tenant context. */
+    public function consumeResolvedPartitionKey(Model $model, TranslationDefinition $definition): ?string
     {
         $resolved = $this->resolvedIdentities[$model] ?? null;
+        unset($this->resolvedIdentities[$model]);
 
-        return $resolved !== null && $resolved['definition'] == $definition
+        return $resolved !== null
+            && $resolved['definition'] == $definition
+            && $this->sameContext($resolved['context'], $this->context->snapshot())
             ? $resolved['partitionKey']
             : null;
     }
@@ -373,6 +390,7 @@ final readonly class TranslationResourceLocator
         $suppliedByKey = [];
         $keys = [];
         foreach ($records as $model) {
+            unset($this->resolvedIdentities[$model]);
             if (! $model instanceof TranslatableResourceModel
                 || ! $this->compatible($record, $model)
                 || $model->translationDefinition() != $definition) {
@@ -417,30 +435,18 @@ final readonly class TranslationResourceLocator
         }
         $identities = [];
         $logicalIdentities = [];
+        $identityColumns = $this->identityColumns(
+            $record,
+            $definition,
+            $partitionColumns,
+            $logicalColumn,
+        );
         foreach ($suppliedByKey as $encodedKey => $model) {
             $canonical = $canonicalByKey[$encodedKey] ?? null;
             if (! $canonical instanceof Model) {
                 throw new TenantBoundaryViolation('A canonical translation owner is unavailable in the active context.');
             }
-            $mutableColumns = [
-                ...$definition->fields,
-                $canonical->getUpdatedAtColumn(),
-                ...($definition instanceof SelfTranslationDefinition
-                    ? $definition->sharedFields
-                    : []),
-                ...(method_exists($canonical, 'getDeletedAtColumn')
-                    ? [$canonical->getDeletedAtColumn()]
-                    : []),
-            ];
-            foreach ($canonical->getAttributes() as $column => $value) {
-                if (in_array($column, $mutableColumns, true)) {
-                    continue;
-                }
-                if ($model->getRawOriginal($column) !== $value) {
-                    throw new TenantBoundaryViolation('The supplied translation owner state is stale or forged.');
-                }
-            }
-            foreach (array_values(array_unique([$keyName, ...$partitionColumns, $logicalColumn])) as $column) {
+            foreach ($identityColumns as $column) {
                 $value = $canonical->getRawOriginal($column);
                 if ($model->getRawOriginal($column) !== $value || $model->getAttribute($column) !== $value) {
                     throw new TenantBoundaryViolation('The supplied translation owner identity is stale or forged.');
@@ -460,10 +466,6 @@ final readonly class TranslationResourceLocator
             }
             $logicalIdentities[$logicalKey] = true;
             $partitionKey = $this->canonicalPartitionKey($canonical, $definition, $partitionColumns, $logical);
-            $this->resolvedIdentities[$model] = [
-                'definition' => $definition,
-                'partitionKey' => $partitionKey,
-            ];
             $identities[] = [
                 'model' => $model,
                 'canonical' => $canonical,
@@ -473,6 +475,46 @@ final readonly class TranslationResourceLocator
         }
 
         return $identities;
+    }
+
+    /**
+     * Return only canonical storage and ownership identity columns for one batch.
+     *
+     * @param  list<string>  $partitionColumns
+     * @return list<string>
+     */
+    private function identityColumns(
+        Model $model,
+        TranslationDefinition $definition,
+        array $partitionColumns,
+        string $logicalColumn,
+    ): array {
+        $columns = [$model->getKeyName(), ...$partitionColumns, $logicalColumn];
+        if ($definition->ownershipResource === null) {
+            return array_values(array_unique($columns));
+        }
+        $resource = $this->tenantResources->get($definition->ownershipResource);
+        if ($resource->kind !== TenantResourceKind::Inherited) {
+            return array_values(array_unique($columns));
+        }
+        $canonical = new $resource->model;
+        $relation = Relation::noConstraints(fn () => $canonical->{$resource->parentRelation}());
+        if (! $relation instanceof BelongsTo) {
+            throw new TenantConfigurationInvalid('Translation inheritance requires a belongs-to parent.');
+        }
+        $columns[] = $relation->getForeignKeyName();
+        if ($relation instanceof MorphTo) {
+            $columns[] = $relation->getMorphType();
+        }
+
+        return array_values(array_unique($columns));
+    }
+
+    /** Compare immutable tenant context values without retaining mutable scope state. */
+    private function sameContext(TenantContextSnapshot $expected, TenantContextSnapshot $actual): bool
+    {
+        return $expected->mode === $actual->mode
+            && $expected->tenantId?->value === $actual->tenantId?->value;
     }
 
     /**

@@ -250,6 +250,43 @@ it('keeps central preload and version query counts constant as a page grows', fu
     });
 });
 
+it('rejects a retained preloaded version after the tenant context changes', function (): void {
+    $s = TenantTranslationScenario::install();
+    foreach (range(1, 8) as $index) {
+        $s->entry($s::A, 'entry-'.$index, 'en', 'Tenant A '.$index);
+    }
+    $s->entry($s::B, 'entry-8', 'en', 'Tenant B');
+    $locator = app(TranslationResourceLocator::class);
+    $versioner = app(TranslationResourceVersioner::class);
+
+    $retained = $s->run($s::A, function () use ($locator, $versioner): TenantSelfEntry {
+        $resource = app(TranslationResourceRegistry::class)->get('test.entries');
+        $records = $locator->query($resource)->get();
+        $connection = $records->firstOrFail()->getConnection();
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+
+        $locator->loadTranslations($records);
+        $records->take(7)->each(static fn ($record): string => $versioner->version($record));
+        $queryCount = count($connection->getQueryLog());
+        $connection->disableQueryLog();
+
+        expect($queryCount)->toBeLessThanOrEqual(2);
+
+        $retained = $records->last();
+        if (! $retained instanceof TenantSelfEntry) {
+            throw new LogicException('Expected one retained tenant entry.');
+        }
+
+        return $retained;
+    });
+
+    expect(fn (): string => $s->run(
+        $s::B,
+        fn (): string => $versioner->version($retained),
+    ))->toThrow(TenantBoundaryViolation::class);
+});
+
 it('rejects stale self group identities before loading locale rows', function (): void {
     $s = TenantTranslationScenario::install();
     $entry = $s->entry($s::A, 'original', 'en', 'Original');
@@ -277,12 +314,34 @@ it('rejects forged related owner keys before loading locale rows', function (): 
     $s = TenantTranslationScenario::install();
     $article = $s->article($s::A, 'original', ['en' => ['name' => 'Original']]);
     $other = $s->article($s::A, 'other', ['en' => ['name' => 'Other']]);
-    $article->setRawAttributes([...$article->getAttributes(), 'id' => $other->getKey()], true);
+    $article->setAttribute('id', $other->getKey());
 
     expect(fn () => $s->run(
         $s::A,
         fn () => app(TranslationResourceLocator::class)->loadTranslations(new Collection([$article])),
     ))->toThrow(TenantBoundaryViolation::class);
+});
+
+it('loads related translations after an unrelated owner field changes', function (): void {
+    $s = TenantTranslationScenario::install();
+    $article = $s->article($s::A, 'original', ['en' => ['name' => 'Original']]);
+
+    $loaded = $s->run($s::A, function () use ($article): TenantArticle {
+        $resource = app(TranslationResourceRegistry::class)->get('test.articles');
+        $selected = app(TranslationResourceLocator::class)->query($resource)->findOrFail($article->getKey());
+        $selected->getConnection()->table($selected->getTable())
+            ->where($selected->getKeyName(), $selected->getKey())
+            ->update(['slug' => 'changed-after-selection']);
+
+        app(TranslationResourceLocator::class)->loadTranslations(new Collection([$selected]));
+
+        return $selected;
+    });
+
+    expect($loaded->getRelation('translations'))
+        ->toHaveCount(1)
+        ->and($loaded->getRelation('translations')->firstOrFail()->getAttribute('name'))
+        ->toBe('Original');
 });
 
 it('rejects configured scopes that mutate canonical SQL storage in place', function (): void {

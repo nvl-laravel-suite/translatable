@@ -35,7 +35,7 @@ final class TranslationResourceVersioner
     {
         $definition = $owner->translationDefinition();
         $rows = [];
-        $resolvedPartitionKey = $this->locator->resolvedPartitionKey($owner, $definition);
+        $resolvedPartitionKey = $this->locator->consumeResolvedPartitionKey($owner, $definition);
         $loadedTranslations = $owner->relationLoaded('translations')
             ? $owner->getRelation('translations')
             : null;
