@@ -17,6 +17,9 @@ use Nvl\Translatable\RelatedTranslationDefinition;
  */
 final readonly class RelatedTranslationStore
 {
+    /** Resolve the scoped domain ownership boundary. */
+    public function __construct(private TranslationOwnership $ownership) {}
+
     /**
      * Create or update one related translation row using a race-safe unique-key lookup.
      *
@@ -85,6 +88,7 @@ final readonly class RelatedTranslationStore
      */
     public function rows(Model&TranslatableModel $owner): Collection
     {
+        $this->ownership->assertOwner($owner, $owner->translationDefinition());
         if ($owner->relationLoaded('translations')) {
             $rows = $owner->getRelation('translations');
 

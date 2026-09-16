@@ -40,6 +40,7 @@ final readonly class SelfTranslatableOptions
         public bool $allowDeletingLastTranslation = false,
         public ?TranslationFallbackPolicy $fallbackPolicy = null,
         public TranslationMutationPolicy $mutationPolicy = TranslationMutationPolicy::Direct,
+        public ?string $ownershipResource = null,
     ) {}
 
     /**
@@ -66,6 +67,7 @@ final readonly class SelfTranslatableOptions
             fallbackOnNull: $this->fallbackOnNull,
             allowDeletingLastTranslation: $this->allowDeletingLastTranslation,
             mutationPolicy: $this->mutationPolicy,
+            ownershipResource: $this->ownershipResource,
         );
     }
 
@@ -86,6 +88,7 @@ final readonly class SelfTranslatableOptions
             allowDeletingLastTranslation: $definition->allowDeletingLastTranslation,
             fallbackPolicy: $definition->resolvedFallbackPolicy(),
             mutationPolicy: $definition->mutationPolicy,
+            ownershipResource: $definition->ownershipResource,
         );
     }
 }

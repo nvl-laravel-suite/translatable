@@ -18,6 +18,9 @@ use Nvl\Translatable\SelfTranslationDefinition;
  */
 final readonly class SelfTranslationStore
 {
+    /** Resolve the scoped domain ownership boundary. */
+    public function __construct(private TranslationOwnership $ownership) {}
+
     /**
      * Create or update one grouped locale row using a race-safe unique-key lookup.
      *
@@ -128,6 +131,7 @@ final readonly class SelfTranslationStore
      */
     public function rows(Model&SelfTranslatableModel $owner): Collection
     {
+        $this->ownership->assertOwner($owner, $owner->translationDefinition());
         $definition = $owner->translationDefinition();
         $query = $owner->newQuery();
         $query->getQuery()

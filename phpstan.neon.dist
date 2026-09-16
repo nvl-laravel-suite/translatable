@@ -9,6 +9,11 @@ parameters:
 
     paths:
         - src
+        - tests/Support/TenantArticle.php
+        - tests/Support/TenantArticleTranslation.php
+        - tests/Support/TenantSelfEntry.php
+        - tests/Support/TenantMixedTranslationOwner.php
+        - tests/Support/TenantPolymorphicTranslationChild.php
         - tests/Support/TestTranslatableModel.php
         - tests/Support/TestSelfTranslatableModel.php
         - tests/Support/TestSoftDeletingSelfTranslatableModel.php

@@ -37,6 +37,7 @@ final readonly class TranslatableOptions
         public bool $fallbackOnNull = true,
         public ?TranslationFallbackPolicy $fallbackPolicy = null,
         public TranslationMutationPolicy $mutationPolicy = TranslationMutationPolicy::Direct,
+        public ?string $ownershipResource = null,
     ) {}
 
     /**
@@ -126,6 +127,7 @@ final readonly class TranslatableOptions
             fallbackLocales: array_values(array_unique($fallbackLocales)),
             fallbackOnNull: $this->fallbackOnNull,
             mutationPolicy: $this->mutationPolicy,
+            ownershipResource: $this->ownershipResource,
         );
     }
 
@@ -146,6 +148,7 @@ final readonly class TranslatableOptions
             fallbackOnNull: $definition->shouldFallbackOnNull(),
             fallbackPolicy: $definition->resolvedFallbackPolicy(),
             mutationPolicy: $definition->mutationPolicy,
+            ownershipResource: $definition->ownershipResource,
         );
     }
 }

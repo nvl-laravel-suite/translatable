@@ -34,10 +34,11 @@ abstract readonly class TranslationDefinition
         public array $fallbackLocales = [],
         public ?bool $fallbackOnNull = null,
         public TranslationMutationPolicy $mutationPolicy = TranslationMutationPolicy::Direct,
+        public ?string $ownershipResource = null,
     ) {
         $this->assertColumn($this->localeKey, 'locale');
         $this->assertColumns($this->fields, 'translated');
-        $this->assertFieldsExclude([$this->localeKey]);
+        $this->assertFieldsExclude([$this->localeKey, 'tenant_id', 'ownership_key']);
 
         if ($this->fields === []) {
             throw new TranslatableException('A translation definition must declare at least one translated field.');

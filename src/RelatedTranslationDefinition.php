@@ -35,6 +35,7 @@ final readonly class RelatedTranslationDefinition extends TranslationDefinition
         array $fallbackLocales = [],
         ?bool $fallbackOnNull = null,
         TranslationMutationPolicy $mutationPolicy = TranslationMutationPolicy::Direct,
+        ?string $ownershipResource = null,
     ) {
         parent::__construct(
             fields: $fields,
@@ -44,6 +45,7 @@ final readonly class RelatedTranslationDefinition extends TranslationDefinition
             fallbackLocales: $fallbackLocales,
             fallbackOnNull: $fallbackOnNull,
             mutationPolicy: $mutationPolicy,
+            ownershipResource: $ownershipResource,
         );
 
         $this->assertColumn($this->ownerKey, 'owner key');

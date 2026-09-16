@@ -11,6 +11,7 @@
         "laravel/framework": "^13.0",
         "nvl/data": "^2.0",
         "nvl/support": "^2.0",
+        "nvl/tenancy": "^2.0",
         "spatie/laravel-data": "^4.23",
         "spatie/typescript-transformer": "^3.3",
         "symfony/http-foundation": "^7.0 || ^8.0"

@@ -34,6 +34,7 @@ final readonly class SelfTranslationDefinition extends TranslationDefinition
         ?bool $fallbackOnNull = null,
         public bool $allowDeletingLastTranslation = false,
         TranslationMutationPolicy $mutationPolicy = TranslationMutationPolicy::Direct,
+        ?string $ownershipResource = null,
     ) {
         parent::__construct(
             fields: $fields,
@@ -43,6 +44,7 @@ final readonly class SelfTranslationDefinition extends TranslationDefinition
             fallbackLocales: $fallbackLocales,
             fallbackOnNull: $fallbackOnNull,
             mutationPolicy: $mutationPolicy,
+            ownershipResource: $ownershipResource,
         );
 
         $this->assertColumn($this->groupKey, 'group key');
@@ -55,7 +57,7 @@ final readonly class SelfTranslationDefinition extends TranslationDefinition
         $this->assertFieldsExclude([$this->groupKey]);
         $structuralColumns = array_map(
             mb_strtolower(...),
-            [$this->groupKey, $this->localeKey],
+            [$this->groupKey, $this->localeKey, 'tenant_id', 'ownership_key'],
         );
 
         foreach ($this->sharedFields as $sharedField) {

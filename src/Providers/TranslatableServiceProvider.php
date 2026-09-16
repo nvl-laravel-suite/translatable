@@ -21,6 +21,7 @@ use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\SelfTranslationStore;
 use Nvl\Translatable\Services\SystemTranslationResourceAuthorizer;
 use Nvl\Translatable\Services\TranslationDoctor;
+use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationPayloadValidator;
 use Nvl\Translatable\Services\TranslationResolver;
 use Nvl\Translatable\Services\TranslationResourceAuthorization;
@@ -49,17 +50,18 @@ final class TranslatableServiceProvider extends ServiceProvider
 
         $this->app->singleton(LocaleRegistry::class);
         $this->app->scoped(ContentLocale::class);
-        $this->app->singleton(TranslationResolver::class);
-        $this->app->singleton(TranslationDoctor::class);
-        $this->app->singleton(TranslationPayloadValidator::class);
-        $this->app->singleton(RelatedTranslationStore::class);
-        $this->app->singleton(SelfTranslationStore::class);
-        $this->app->singleton(TranslationWriter::class);
+        $this->app->scoped(TranslationOwnership::class);
+        $this->app->scoped(TranslationResolver::class);
+        $this->app->scoped(TranslationDoctor::class);
+        $this->app->scoped(TranslationPayloadValidator::class);
+        $this->app->scoped(RelatedTranslationStore::class);
+        $this->app->scoped(SelfTranslationStore::class);
+        $this->app->scoped(TranslationWriter::class);
         $this->app->singleton(TranslationResourceRegistry::class);
-        $this->app->singleton(TranslationResourceGatherer::class);
-        $this->app->singleton(TranslationResourceLocator::class);
-        $this->app->singleton(TranslationResourceVersioner::class);
-        $this->app->singleton(TranslationResourceAuthorization::class);
+        $this->app->scoped(TranslationResourceGatherer::class);
+        $this->app->scoped(TranslationResourceLocator::class);
+        $this->app->scoped(TranslationResourceVersioner::class);
+        $this->app->scoped(TranslationResourceAuthorization::class);
         $this->app->bind(SyncTranslationResourceAction::class);
         $this->app->bind(DeleteTranslationResourceLocaleAction::class);
         $this->app->bind(

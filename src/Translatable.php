@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Nvl\Translatable\Services\ContentLocale;
+use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationResolver;
 
 /**
@@ -459,6 +460,7 @@ trait Translatable
      */
     private function translationRows(): Collection
     {
+        app(TranslationOwnership::class)->assertOwner($this, $this->translationDefinition());
         if ($this->relationLoaded('translations')) {
             $translations = $this->getRelation('translations');
 

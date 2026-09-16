@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Tests;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Nvl\Data\Providers\DataServiceProvider;
+use Nvl\Tenancy\Providers\TenancyServiceProvider;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
@@ -35,6 +36,7 @@ abstract class TestCase extends Orchestra
     {
         return [
             DataServiceProvider::class,
+            TenancyServiceProvider::class,
             TranslatableServiceProvider::class,
         ];
     }

@@ -16,6 +16,7 @@ use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\SelfTranslationStore;
+use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationPayloadValidator;
 use Nvl\Translatable\Services\TranslationResolver;
 
@@ -410,6 +411,7 @@ trait SelfTranslatable
      */
     public function getAllTranslations(): Collection
     {
+        app(TranslationOwnership::class)->assertOwner($this, $this->translationDefinition());
         $definition = $this->translationDefinition();
         $groupValue = $this->translationResourceKey();
 
@@ -654,7 +656,7 @@ trait SelfTranslatable
 
         return $this->getConnection()->transaction(
             function () use ($definition, $resolvedLocale, $attributes): Model {
-                $store = new SelfTranslationStore;
+                $store = app(SelfTranslationStore::class);
                 $translation = $store->upsert(
                     $this,
                     $definition,
@@ -686,7 +688,7 @@ trait SelfTranslatable
                     ->lockForUpdate()
                     ->get();
 
-                $store = new SelfTranslationStore;
+                $store = app(SelfTranslationStore::class);
                 $deleted = $store->delete(
                     $this,
                     $definition,
@@ -733,7 +735,7 @@ trait SelfTranslatable
                     [$targetLocale => $data],
                 );
 
-                $store = new SelfTranslationStore;
+                $store = app(SelfTranslationStore::class);
                 $translation = $store->upsert(
                     $this,
                     $definition,

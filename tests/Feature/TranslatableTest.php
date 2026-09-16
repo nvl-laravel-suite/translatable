@@ -12,6 +12,7 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
+use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTimestampedTranslation;
@@ -284,6 +285,8 @@ test('it eager loads requested and fallback translations without per-model queri
         $writer->upsert($model, 'en', ['name' => "Name {$index}"]);
     };
     $measure = static function (): array {
+        $owner = new TestTranslatableModel;
+        app(TranslationOwnership::class)->assertOwner($owner, $owner->translationDefinition());
         DB::flushQueryLog();
         DB::enableQueryLog();
 
