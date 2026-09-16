@@ -431,7 +431,8 @@ final readonly class TranslationResourceGatherer
             $this->locales->assertSupported($missingLocale),
         );
 
-        if ($model instanceof SelfTranslatableModel) {
+        if ($model instanceof SelfTranslatableModel
+            && $definition instanceof SelfTranslationDefinition) {
             $table = $model->getTable();
             $alias = 'translation_missing_rows';
             $partitionColumns = $this->ownershipColumns($definition);
@@ -450,10 +451,6 @@ final readonly class TranslationResourceGatherer
                     $table,
                     $visibleRows,
                 ): void {
-                    if (! $definition instanceof SelfTranslationDefinition) {
-                        throw new LogicException('Expected a self-translation definition.');
-                    }
-
                     $query->selectRaw('1')->fromSub($visibleRows, $alias);
 
                     foreach ($partitionColumns as $column) {
@@ -481,7 +478,11 @@ final readonly class TranslationResourceGatherer
         );
     }
 
-    /** Return ownership columns after the row query has admitted canonical storage. */
+    /**
+     * Return ownership columns after the row query has admitted canonical storage.
+     *
+     * @return list<string>
+     */
     private function ownershipColumns(SelfTranslationDefinition $definition): array
     {
         return $this->ownership->partitionColumns($definition);
@@ -514,8 +515,12 @@ final readonly class TranslationResourceGatherer
 
         $definition = $record->translationDefinition();
         $translations = [];
+        $translationRows = $record->getRelation('translations');
+        if (! $translationRows instanceof EloquentCollection) {
+            throw new LogicException('Central translation records require one admitted preloaded collection.');
+        }
 
-        foreach ($record->getAllTranslations() as $translation) {
+        foreach ($translationRows as $translation) {
             $locale = $translation->getAttribute($definition->localeKey);
 
             if (! is_string($locale)) {

@@ -4,12 +4,17 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Tenancy\Enums\TenantResourceKind;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Tenancy\Services\TenantBoundary;
+use Nvl\Tenancy\Services\TenantInstallationState;
+use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Tenancy\Services\TenantRunner;
 use Nvl\Tenancy\ValueObjects\PlatformOperation;
+use Nvl\Tenancy\ValueObjects\TenantResourceDefinition;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationMutationData;
@@ -18,6 +23,11 @@ use Nvl\Translatable\Services\TranslationDoctor;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceLocator;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
+use Nvl\Translatable\Services\TranslationResourceVersioner;
+use Nvl\Translatable\Tests\Support\DoctorSameNameConnectionArticle;
+use Nvl\Translatable\Tests\Support\DoctorSameNameConnectionArticleTranslation;
+use Nvl\Translatable\Tests\Support\TenantArticle;
+use Nvl\Translatable\Tests\Support\TenantArticleTranslation;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
@@ -154,6 +164,127 @@ it('reapplies ownership after a configured scope widens its builder in place', f
         ->and($page->items()[0]->translations['en']['name'])->toBe('A');
 });
 
+it('keeps ownership after a configured scope registers a late base query replacement', function (): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'a', 'en', 'A');
+    $s->entry($s::B, 'b', 'en', 'B');
+    app(TranslationResourceRegistry::class)->register(
+        key: 'test.late-base-entries',
+        modelClass: TenantSelfEntry::class,
+        label: 'Late base entries',
+        displayColumns: ['name'],
+        queryScope: static function (Builder $query): Builder {
+            $query->getQuery()->beforeQuery(static function (QueryBuilder $query): void {
+                $query->wheres = [];
+                $query->setBindings([], 'where');
+            });
+
+            return $query;
+        },
+    );
+
+    $page = $s->run($s::A, fn () => app(TranslationResourceGatherer::class)->gather(
+        'test.late-base-entries',
+        TranslationActorData::system(),
+    ));
+
+    expect($page->total())->toBe(1)
+        ->and($page->items()[0]->translations['en']['name'])->toBe('A');
+});
+
+it('keeps ownership after a configured scope registers a late global scope replacement', function (): void {
+    $s = TenantTranslationScenario::install();
+    $s->entry($s::A, 'a', 'en', 'A');
+    $s->entry($s::B, 'b', 'en', 'B');
+    app(TranslationResourceRegistry::class)->register(
+        key: 'test.late-global-entries',
+        modelClass: TenantSelfEntry::class,
+        label: 'Late global entries',
+        displayColumns: ['name'],
+        queryScope: static fn (Builder $query): Builder => $query->withGlobalScope(
+            'late-replacement',
+            static function (Builder $query): void {
+                $query->getQuery()->wheres = [];
+                $query->getQuery()->setBindings([], 'where');
+            },
+        ),
+    );
+
+    $page = $s->run($s::A, fn () => app(TranslationResourceGatherer::class)->gather(
+        'test.late-global-entries',
+        TranslationActorData::system(),
+    ));
+
+    expect($page->total())->toBe(1)
+        ->and($page->items()[0]->translations['en']['name'])->toBe('A');
+});
+
+it('keeps central preload and version query counts constant as a page grows', function (): void {
+    $s = TenantTranslationScenario::install();
+    foreach (range(1, 8) as $index) {
+        $s->entry($s::A, 'entry-'.$index, 'en', 'Entry '.$index);
+    }
+
+    $s->run($s::A, function (): void {
+        $resource = app(TranslationResourceRegistry::class)->get('test.entries');
+        $locator = app(TranslationResourceLocator::class);
+        $versioner = app(TranslationResourceVersioner::class);
+        $records = $locator->query($resource)->get();
+        $connection = $records->firstOrFail()->getConnection();
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+
+        $single = new Collection([$records->firstOrFail()]);
+        $locator->loadTranslations($single);
+        $single->each(static fn ($record): string => $versioner->version($record));
+        $singleCount = count($connection->getQueryLog());
+        $connection->flushQueryLog();
+
+        $locator->loadTranslations($records);
+        $records->each(static fn ($record): string => $versioner->version($record));
+        $pageCount = count($connection->getQueryLog());
+        $connection->disableQueryLog();
+
+        expect($pageCount)->toBe($singleCount)
+            ->and($pageCount)->toBeLessThanOrEqual(2);
+    });
+});
+
+it('rejects stale self group identities before loading locale rows', function (): void {
+    $s = TenantTranslationScenario::install();
+    $entry = $s->entry($s::A, 'original', 'en', 'Original');
+    $s->entry($s::A, 'other', 'en', 'Other');
+    $entry->setRawAttributes([...$entry->getAttributes(), 'entry_key' => 'other'], true);
+
+    expect(fn () => $s->run(
+        $s::A,
+        fn () => app(TranslationResourceLocator::class)->loadTranslations(new Collection([$entry])),
+    ))->toThrow(TenantBoundaryViolation::class);
+});
+
+it('rejects forged self ownership partitions before loading locale rows', function (): void {
+    $s = TenantTranslationScenario::install();
+    $entry = $s->entry($s::A, 'original', 'en', 'Original');
+    $entry->setRawAttributes([...$entry->getAttributes(), 'tenant_id' => $s::B], true);
+
+    expect(fn () => $s->run(
+        $s::A,
+        fn () => app(TranslationResourceLocator::class)->loadTranslations(new Collection([$entry])),
+    ))->toThrow(TenantBoundaryViolation::class);
+});
+
+it('rejects forged related owner keys before loading locale rows', function (): void {
+    $s = TenantTranslationScenario::install();
+    $article = $s->article($s::A, 'original', ['en' => ['name' => 'Original']]);
+    $other = $s->article($s::A, 'other', ['en' => ['name' => 'Other']]);
+    $article->setRawAttributes([...$article->getAttributes(), 'id' => $other->getKey()], true);
+
+    expect(fn () => $s->run(
+        $s::A,
+        fn () => app(TranslationResourceLocator::class)->loadTranslations(new Collection([$article])),
+    ))->toThrow(TenantBoundaryViolation::class);
+});
+
 it('rejects configured scopes that mutate canonical SQL storage in place', function (): void {
     $s = TenantTranslationScenario::install();
     app(TranslationResourceRegistry::class)->register(
@@ -272,4 +403,72 @@ it('diagnoses undeclared legacy ownership after tenancy is enabled', function ()
 
     expect(implode(' ', app(TranslationDoctor::class)->inspect()->errors))
         ->toContain('Resource [test.legacy-models] must declare an ownership resource key');
+});
+
+it('diagnoses a missing related child ownership registration', function (): void {
+    TenantTranslationScenario::install();
+    $tenantResources = new TenantResourceRegistry;
+    $tenantResources->register(new TenantResourceDefinition('test.entries', 'test', TenantSelfEntry::class));
+    $tenantResources->register(new TenantResourceDefinition('test.articles', 'test-articles', TenantArticle::class));
+    app()->instance(TenantResourceRegistry::class, $tenantResources);
+
+    expect(implode(' ', app(TranslationDoctor::class)->inspect()->errors))
+        ->toContain('Resource [test.articles] related translation model')
+        ->toContain('is not registered');
+});
+
+it('diagnoses a related child registered under the wrong inherited parent', function (): void {
+    TenantTranslationScenario::install();
+    $tenantResources = new TenantResourceRegistry;
+    $tenantResources->register(new TenantResourceDefinition('test.entries', 'test', TenantSelfEntry::class));
+    $tenantResources->register(new TenantResourceDefinition('test.articles', 'test-articles', TenantArticle::class));
+    $tenantResources->register(new TenantResourceDefinition(
+        'test.article-translations',
+        'test-articles',
+        TenantArticleTranslation::class,
+        TenantResourceKind::Inherited,
+        'test.entries',
+        'article',
+    ));
+    app()->instance(TenantResourceRegistry::class, $tenantResources);
+
+    expect(implode(' ', app(TranslationDoctor::class)->inspect()->errors))
+        ->toContain('Resource [test.articles] related translation ownership must inherit from [test.articles]');
+});
+
+it('diagnoses related storage using a different actual connection with the same name', function (): void {
+    TenantTranslationScenario::install();
+    $resources = new TranslationResourceRegistry;
+    $resources->register('test.same-name-articles', DoctorSameNameConnectionArticle::class, 'Same-name articles');
+    app()->instance(TranslationResourceRegistry::class, $resources);
+    $tenantResources = new TenantResourceRegistry;
+    $tenantResources->register(new TenantResourceDefinition(
+        'test.articles',
+        'test-articles',
+        DoctorSameNameConnectionArticle::class,
+    ));
+    $tenantResources->register(new TenantResourceDefinition(
+        'test.article-translations',
+        'test-articles',
+        DoctorSameNameConnectionArticleTranslation::class,
+        TenantResourceKind::Inherited,
+        'test.articles',
+        'article',
+    ));
+    app()->instance(TenantResourceRegistry::class, $tenantResources);
+
+    expect(implode(' ', app(TranslationDoctor::class)->inspect()->errors))
+        ->toContain('Resource [test.same-name-articles] owner and translation models use different actual connections');
+});
+
+it('diagnoses an incompatible related child adoption marker', function (): void {
+    TenantTranslationScenario::install();
+    $connection = (new TenantArticleTranslation)->getConnection();
+    $connection->table('nvl_tenancy_installation_state')
+        ->where('resource', 'test.article-translations')
+        ->update(['configuration_hash' => str_repeat('0', 64)]);
+    app(TenantInstallationState::class)->invalidate();
+
+    expect(implode(' ', app(TranslationDoctor::class)->inspect()->errors))
+        ->toContain('Resource [test.articles] related translation ownership adoption is incompatible');
 });

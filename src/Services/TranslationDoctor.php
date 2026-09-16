@@ -6,8 +6,10 @@ namespace Nvl\Translatable\Services;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder;
+use Nvl\Tenancy\Enums\TenantResourceKind;
 use Nvl\Tenancy\Services\TenantInstallationState;
 use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
@@ -298,9 +300,10 @@ final readonly class TranslationDoctor
         $translationTable = $translationModel->getTable();
         $foreignKey = $definition->foreignKey($model->getTable());
 
-        if ($model->getConnection()->getName() !== $translationModel->getConnection()->getName()) {
-            $errors[] = "Resource [{$resource->key}] owner and translation models use different connections.";
+        if ($model->getConnection() !== $translationModel->getConnection()) {
+            $errors[] = "Resource [{$resource->key}] owner and translation models use different actual connections.";
         }
+        $this->inspectRelatedOwnership($resource, $model, $translationModel, $definition, $errors);
 
         $this->assertColumns(
             $resource,
@@ -371,6 +374,63 @@ final readonly class TranslationDoctor
                 .implode(', ', $ownerColumns).']).';
         } elseif (mb_strtolower((string) $matchingForeignKey['on_delete']) !== 'cascade') {
             $errors[] = "Resource [{$resource->key}] owner foreign key must cascade on delete.";
+        }
+    }
+
+    /**
+     * Diagnose the related child registration, inherited parent, connection and adoption contract.
+     *
+     * @param  list<string>  $errors
+     */
+    private function inspectRelatedOwnership(
+        TranslationResourceDefinition $resource,
+        Model&TranslatableModel $owner,
+        Model $translation,
+        RelatedTranslationDefinition $definition,
+        array &$errors,
+    ): void {
+        if ($definition->ownershipResource === null) {
+            return;
+        }
+
+        try {
+            $registered = $this->tenantResources->forModel($translation);
+            $canonical = new $registered->model;
+            if ($canonical::class !== $translation::class
+                || $canonical->getTable() !== $translation->getTable()
+                || $canonical->getConnection() !== $translation->getConnection()) {
+                $errors[] = "Resource [{$resource->key}] related translation ownership must register its exact model, table, and actual connection.";
+            }
+        } catch (Throwable $exception) {
+            $translationClass = $translation::class;
+            $errors[] = "Resource [{$resource->key}] related translation model [{$translationClass}] is not registered: {$exception->getMessage()}";
+
+            return;
+        }
+
+        if ($registered->kind !== TenantResourceKind::Inherited
+            || $registered->parentResource !== $definition->ownershipResource
+            || $registered->parentRelation === null) {
+            $errors[] = "Resource [{$resource->key}] related translation ownership must inherit from [{$definition->ownershipResource}].";
+        } else {
+            try {
+                $relation = Relation::noConstraints(fn () => $canonical->{$registered->parentRelation}());
+                $parent = $relation instanceof BelongsTo ? $relation->getRelated() : null;
+                if (! $parent instanceof Model
+                    || $parent::class !== $owner::class
+                    || $parent->getTable() !== $owner->getTable()
+                    || $parent->getConnection() !== $owner->getConnection()) {
+                    $errors[] = "Resource [{$resource->key}] related translation ownership must resolve its exact inherited parent.";
+                }
+            } catch (Throwable $exception) {
+                $errors[] = "Resource [{$resource->key}] related translation inherited parent is invalid: {$exception->getMessage()}";
+            }
+        }
+
+        try {
+            $this->installation->assertUsable($registered->key);
+        } catch (Throwable $exception) {
+            $errors[] = "Resource [{$resource->key}] related translation ownership adoption is incompatible: {$exception->getMessage()}";
         }
     }
 

@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Services;
 use BackedEnum;
 use DateTimeInterface;
 use Illuminate\Contracts\Support\Arrayable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use JsonSerializable;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -21,8 +22,11 @@ use UnitEnum;
  */
 final class TranslationResourceVersioner
 {
-    /** Resolve canonical ownership for every version identity. */
-    public function __construct(private readonly TranslationOwnership $ownership) {}
+    /** Resolve canonical ownership and reuse admitted central preload identities. */
+    public function __construct(
+        private readonly TranslationOwnership $ownership,
+        private readonly TranslationResourceLocator $locator,
+    ) {}
 
     /**
      * Calculate a version from owner and translation state.
@@ -31,7 +35,13 @@ final class TranslationResourceVersioner
     {
         $definition = $owner->translationDefinition();
         $rows = [];
-        $translations = $owner->getAllTranslations();
+        $resolvedPartitionKey = $this->locator->resolvedPartitionKey($owner, $definition);
+        $loadedTranslations = $owner->relationLoaded('translations')
+            ? $owner->getRelation('translations')
+            : null;
+        $translations = $resolvedPartitionKey !== null && $loadedTranslations instanceof Collection
+            ? $loadedTranslations
+            : $owner->getAllTranslations();
         $versionedFields = [
             ...$definition->fields,
             ...($definition instanceof SelfTranslationDefinition
@@ -67,7 +77,8 @@ final class TranslationResourceVersioner
         ksort($rows);
         $state = [
             'id' => $owner->translationResourceKey(),
-            'ownership' => $this->ownership->partitionKey($owner, $definition),
+            'ownership' => $resolvedPartitionKey
+                ?? $this->ownership->partitionKey($owner, $definition),
         ];
         if (! $definition instanceof SelfTranslationDefinition) {
             $updatedAtColumn = $owner->getUpdatedAtColumn();
