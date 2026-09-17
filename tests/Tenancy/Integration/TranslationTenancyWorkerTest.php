@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
@@ -65,6 +67,16 @@ it('restores tenant translation context in a real database queue worker', functi
         $pdo = new PDO('sqlite:'.$database);
         $results = $pdo->query('select result_key, tenant_id, value from tenant_probe_results order by result_key')
             ->fetchAll(PDO::FETCH_ASSOC);
+        $failed = $pdo->query('select exception from failed_jobs order by id')
+            ->fetchAll(PDO::FETCH_COLUMN);
+        $translationFailures = array_values(array_filter(
+            $failed,
+            static fn (string $exception): bool => str_contains($exception, 'translation probe'),
+        ));
+        $corruptEnvelopeFailures = array_values(array_filter(
+            $failed,
+            static fn (string $exception): bool => str_contains($exception, 'A carried envelope differs from the queued tenant boundary.'),
+        ));
 
         expect($results)->toContain(
             ['result_key' => 'a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
@@ -72,7 +84,15 @@ it('restores tenant translation context in a real database queue worker', functi
             ['result_key' => 'failure-a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
             ['result_key' => 'worker-scope', 'tenant_id' => null, 'value' => 'en'],
         )->and(array_column($results, 'result_key'))->not->toContain('corrupt-before-read')
-            ->and((int) $pdo->query('select count(*) from failed_jobs')->fetchColumn())->toBe(2)
+            ->and($failed)->toHaveCount(2)
+            ->and($translationFailures)->toHaveCount(1)
+            ->and($translationFailures[0])->toContain(RuntimeException::class, 'translation probe')
+            ->and($corruptEnvelopeFailures)->toHaveCount(1, implode("\n---\n", $failed))
+            ->and($corruptEnvelopeFailures[0])->toContain(
+                TenantBoundaryViolation::class,
+                'A carried envelope differs from the queued tenant boundary.',
+            )
+            ->and($corruptEnvelopeFailures[0])->not->toContain(ModelNotFoundException::class)
             ->and((int) $pdo->query('select count(*) from jobs')->fetchColumn())->toBe(0);
     } finally {
         $files->remove($fixture);
