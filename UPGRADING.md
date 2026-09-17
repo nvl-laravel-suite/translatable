@@ -1,5 +1,26 @@
 # Upgrading NVL Translatable
 
+## Adopting optional tenancy
+
+Tenancy remains disabled by default. Applications that leave it disabled and
+have not adopted Translatable resources keep legacy tables unchanged; do not
+add tenant columns solely because this package is installed.
+
+Before enabling tenancy, add `ownershipResource` to every related and self
+translation definition, register each resource with the domain owner's
+`TenantResourceRegistry`, and adopt the owning package. Tenant-only tables
+require `tenant_id` in their owner/group locale uniqueness and composite
+related foreign keys. Mixed platform/tenant tables require nullable
+`tenant_id`, non-null `ownership_key` (`platform` or `tenant:<UUID>`), and
+uniqueness partitioned by `ownership_key`.
+
+Move every `TranslationWriter` call into a transaction on the model's actual
+connection. Do not retain models or loaded translation relations across a
+tenant or platform-mode change; retain scalar IDs and reload in the new
+execution. Audit raw SQL and bulk query writes separately because they bypass
+Eloquent ownership admission and must supply the exact tenant predicate while
+preserving structural ownership columns.
+
 ## Adopting typed translation definitions
 
 Existing `TranslatableOptions` and `SelfTranslatableOptions` declarations

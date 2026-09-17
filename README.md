@@ -36,6 +36,7 @@ cookies.
 ## Contents
 
 - [Installation and schema ownership](#installation)
+- [Tenant ownership](#tenant-ownership)
 - [Global configuration](#global-configuration)
 - [Storage strategy](#choose-a-storage-strategy)
 - [Related-row translations](#related-row-translations)
@@ -88,6 +89,73 @@ Use `defineTranslations()` as the canonical runtime declaration and
 `nvl:translatable:doctor` to compare that declaration with the configured
 database. The package never scans model directories or generates schema from
 declarations.
+
+## Tenant ownership
+
+Tenancy is opt-in and disabled by default. Disabled applications and
+unadopted legacy translation models keep their existing schema and query
+behavior; they do not need tenant tables, `tenant_id`, or `ownership_key`.
+Once a host enables and adopts tenancy, every translatable model must name its
+domain-owned tenant resource in code:
+
+```php
+return new SelfTranslationDefinition(
+    groupKey: 'entry_key',
+    fields: ['name'],
+    ownershipResource: 'catalog.entries',
+);
+
+return new RelatedTranslationDefinition(
+    translationModel: ArticleTranslation::class,
+    foreignKey: 'article_id',
+    fields: ['title'],
+    ownershipResource: 'content.articles',
+);
+```
+
+The resource key must also be registered with `TenantResourceRegistry` and
+adopted through its owning package. Missing declarations, tenant context, or
+adoption state fail closed.
+
+Tenant-only self storage partitions the unique key by the canonical tenant:
+
+```php
+$table->uuid('tenant_id');
+$table->unique(['tenant_id', 'entry_key', 'locale']);
+```
+
+Tenant-only related storage keeps ownership on both sides and prevents a
+translation from crossing its canonical owner:
+
+```php
+$owner->unique(['tenant_id', 'id']);
+$translation->uuid('tenant_id');
+$translation->foreign(['tenant_id', 'article_id'])
+    ->references(['tenant_id', 'id'])->on('articles')->cascadeOnDelete();
+$translation->unique(['tenant_id', 'article_id', 'locale']);
+```
+
+Mixed platform/tenant catalogs use a non-null discriminator instead:
+
+```php
+$table->uuid('tenant_id')->nullable();
+$table->string('ownership_key'); // platform or tenant:<canonical UUID>
+$table->unique(['ownership_key', 'entry_key', 'locale']);
+```
+
+Treat loaded models and relations as valid only within the tenant execution
+that loaded them. Reusing them after a tenant or mode change is rejected;
+reload scalar identifiers through the canonical tenant query instead. Every
+`TranslationWriter` call in enabled mode must run inside a transaction on the
+owner's effective connection so canonical ownership and locale creation can
+be locked together.
+
+Eloquent scopes, relations, resource gathering, and writers enforce these
+boundaries. Raw SQL, query-builder writes that bypass the package, disabled
+model events, and externally hydrated relations are a host trust boundary:
+the caller must apply the exact ownership predicate and preserve structural
+columns. Never accept `tenant_id` or `ownership_key` from client translation
+payloads.
 
 ## Global configuration
 

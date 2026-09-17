@@ -20,6 +20,12 @@ files managed by `nvl/translations`.
 7. Run focused tests, static analysis, formatting, TypeScript checks, and
    `php artisan nvl:translatable:doctor --json`.
 
+Tenancy is opt-in and disabled by default. Do not add ownership columns or
+tenant tables to disabled, unadopted legacy consumers. In enabled deployments,
+every `RelatedTranslationDefinition` and `SelfTranslationDefinition` must set
+`ownershipResource` to a domain-owned resource registered and adopted through
+`TenantResourceRegistry`; missing declarations or context fail closed.
+
 Never generate or discover schema, models, fields, or storage strategies from
 translation declarations. A declaration omits SQL types, nullability,
 defaults, indexes, casts, relationships, connection ownership, and migration
@@ -54,6 +60,13 @@ translated `fields` from structural `sharedFields`.
 - Keep Eloquent-managed primary key, timestamp, and soft-delete columns out of
   translated and shared fields.
 - Treat self-row group and locale identity as immutable.
+- For tenant-only self rows, make `(tenant_id, group, locale)` unique.
+- For tenant-only related rows, carry `tenant_id` into the child, make
+  `(tenant_id, owner_id, locale)` unique, and reference the owner's composite
+  `(tenant_id, id)` key.
+- For mixed platform/tenant catalogs, use nullable `tenant_id`, non-null
+  `ownership_key`, and partition uniqueness by `ownership_key`; valid values
+  are `platform` and `tenant:<canonical UUID>`.
 
 Run `php artisan nvl:translatable:doctor` after schema or configuration
 changes.
@@ -82,6 +95,9 @@ fallback by default; use `withTrashed()->locale(...)` to include them or
   `SupportedLocaleMapRule`.
 - Use `TranslationWriter` only inside a transaction on
   `$model->getConnection()`.
+- Treat models and loaded translation relations as execution-local. Retain
+  scalar IDs across tenant/mode changes and reload through the canonical
+  tenant query.
 - For model-local self-row mutations, use `setTranslation()`,
   `cloneTranslation()`, and `deleteTranslation()`; these preserve identity,
   grouped locking, final-row protection, deadlock retries, and loaded state.
@@ -105,6 +121,10 @@ fallback by default; use `withTrashed()->locale(...)` to include them or
   system actor.
 - Never write translation rows from controllers, DTOs, observers,
   presentation services, or arbitrary model `fill()` / `save()` calls.
+- Treat raw SQL, bulk query writes, muted model events, and externally loaded
+  relations as host trust boundaries. They must apply exact ownership
+  predicates and must never accept `tenant_id` or `ownership_key` from client
+  payloads.
 
 ## Register and audit
 

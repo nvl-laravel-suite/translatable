@@ -12,12 +12,16 @@ parameters:
         - tests/Support/TenantArticle.php
         - tests/Support/TenantArticleTranslation.php
         - tests/Support/TenantSelfEntry.php
+        - tests/Support/TenantTranslationProbeJob.php
         - tests/Support/TenantMixedTranslationOwner.php
         - tests/Support/TenantPolymorphicTranslationChild.php
         - tests/Support/TestTranslatableModel.php
         - tests/Support/TestSelfTranslatableModel.php
         - tests/Support/TestSoftDeletingSelfTranslatableModel.php
         - tests/Support/TestDomainManagedTranslatableModel.php
+        - tests/Fixtures/TenancyConsumerRaceCommand.php
+        - tests/Fixtures/TenancyConsumerServiceProvider.php
+        - tests/Fixtures/TenancyConsumerSetupCommand.php
 
     level: max
 

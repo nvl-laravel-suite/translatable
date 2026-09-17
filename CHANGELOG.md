@@ -4,6 +4,19 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Added opt-in tenant ownership declarations and tenant-only or mixed-catalog
+  partitions for both translation strategies, with fail-closed reads, writes,
+  loaded relations, central resources, and optimistic versions.
+- Added real database-worker, failed-envelope, separate-process
+  PostgreSQL/Redis race, and standalone Composer archive coverage.
+
+### Changed
+
+- Documented transaction ownership, loaded-model lifetime, disabled legacy
+  compatibility, and the raw-SQL ownership trust boundary.
+
 ### Fixed
 
 - Exclude soft-deleted self-translation rows from locale fallback and central
