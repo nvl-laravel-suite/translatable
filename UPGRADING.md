@@ -106,3 +106,6 @@ Do not build schema generation around translation declarations. They do not
 contain SQL types, nullability, defaults, connection ownership, casts, or
 migration history. Keep schema changes explicit and use the doctor to verify
 the final database against each declaration.
+
+<!-- tenancy-program-p2 -->
+Configurable-tenancy implementation and adoption documentation are present. The final consolidated verification matrix is pending; do not treat this package as release-ready until that gate passes.

@@ -98,3 +98,6 @@ All notable changes to `nvl/translatable` are documented here.
 - Added request/job-scoped locale state with lifecycle isolation.
 - Added a central typed resource registry, gather and coverage DTOs, authorization, revisions, and after-commit events.
 - Removed magic property access, compatibility hydration, cache no-ops, aliases, and HTTP concerns.
+
+<!-- tenancy-program-p2 -->
+Configurable-tenancy implementation and adoption documentation are present. The final consolidated verification matrix is pending; do not treat this package as release-ready until that gate passes.
