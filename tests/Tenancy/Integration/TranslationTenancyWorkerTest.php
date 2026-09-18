@@ -47,6 +47,9 @@ it('restores tenant translation context in a real database queue worker', functi
         expect($setup->isSuccessful())->toBeTrue($setup->getOutput().$setup->getErrorOutput())
             ->and($setup->getOutput())->toContain('driver=sqlite', 'setup=ok', 'queue='.$queue);
 
+        $pdo = new PDO('sqlite:'.$database);
+        $pdo->exec('update jobs set available_at = 0');
+
         $worker = new Process([
             PHP_BINARY,
             $fixture.'/artisan.php',
@@ -64,7 +67,28 @@ it('restores tenant translation context in a real database queue worker', functi
         expect($worker->isSuccessful())->toBeTrue($worker->getOutput().$worker->getErrorOutput())
             ->and($worker->getOutput())->toContain('TenantTranslationProbeJob');
 
-        $pdo = new PDO('sqlite:'.$database);
+        $drainAttempts = 0;
+        while ($drainAttempts < 3 && (int) $pdo->query("select count(*) from jobs where queue = '{$queue}'")->fetchColumn() > 0) {
+            $drainAttempts++;
+            $pdo->exec('update jobs set available_at = 0');
+            $drainWorker = new Process([
+                PHP_BINARY,
+                $fixture.'/artisan.php',
+                'queue:work',
+                'database',
+                '--queue='.$queue,
+                '--stop-when-empty',
+                '--tries=1',
+                '--timeout=30',
+                '--sleep=0',
+                '--no-interaction',
+            ], $fixture, $environment, timeout: 60);
+            $drainWorker->run();
+            if (! $drainWorker->isSuccessful()) {
+                break;
+            }
+        }
+
         $results = $pdo->query('select result_key, tenant_id, value from tenant_probe_results order by result_key')
             ->fetchAll(PDO::FETCH_ASSOC);
         $failed = $pdo->query('select exception from failed_jobs order by id')
@@ -78,22 +102,30 @@ it('restores tenant translation context in a real database queue worker', functi
             static fn (string $exception): bool => str_contains($exception, 'A carried envelope differs from the queued tenant boundary.'),
         ));
 
+        $diagnostics = json_encode([
+            'results' => $results,
+            'failed' => array_map(static fn (string $exception): string => substr($exception, 0, 500), $failed),
+            'remaining_jobs' => $pdo->query('select id, queue, attempts, available_at from jobs')->fetchAll(PDO::FETCH_ASSOC),
+            'worker_output' => $worker->getOutput(),
+            'worker_error' => $worker->getErrorOutput(),
+        ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
+
         expect($results)->toContain(
             ['result_key' => 'a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
             ['result_key' => 'b-bg', 'tenant_id' => TenantTranslationScenario::B, 'value' => 'B requested'],
             ['result_key' => 'failure-a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
             ['result_key' => 'worker-scope', 'tenant_id' => null, 'value' => 'en'],
         )->and(array_column($results, 'result_key'))->not->toContain('corrupt-before-read')
-            ->and($failed)->toHaveCount(2)
-            ->and($translationFailures)->toHaveCount(1)
+            ->and($failed)->toHaveCount(2, $diagnostics)
+            ->and($translationFailures)->toHaveCount(1, $diagnostics)
             ->and($translationFailures[0])->toContain(RuntimeException::class, 'translation probe')
-            ->and($corruptEnvelopeFailures)->toHaveCount(1, implode("\n---\n", $failed))
+            ->and($corruptEnvelopeFailures)->toHaveCount(1, $diagnostics)
             ->and($corruptEnvelopeFailures[0])->toContain(
                 TenantBoundaryViolation::class,
                 'A carried envelope differs from the queued tenant boundary.',
             )
             ->and($corruptEnvelopeFailures[0])->not->toContain(ModelNotFoundException::class)
-            ->and((int) $pdo->query('select count(*) from jobs')->fetchColumn())->toBe(0);
+            ->and((int) $pdo->query('select count(*) from jobs')->fetchColumn())->toBe(0, $diagnostics);
     } finally {
         $files->remove($fixture);
     }
