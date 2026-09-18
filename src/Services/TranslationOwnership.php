@@ -246,7 +246,7 @@ final readonly class TranslationOwnership
             throw new TenantConfigurationInvalid('Translation ownership contains a cycle.');
         }
         if ($resource->kind !== TenantResourceKind::Inherited) {
-            return $resource->allowsPlatformCatalog || $resource->allowsPlatformRows ? ['ownership_key'] : ['tenant_id'];
+            return $resource->usesOwnershipKey() ? ['ownership_key'] : ['tenant_id'];
         }
         $visited[] = $resource->key;
         $parents = $resource->parentResource !== null
