@@ -47,8 +47,9 @@ it('restores tenant translation context in a real database queue worker', functi
         expect($setup->isSuccessful())->toBeTrue($setup->getOutput().$setup->getErrorOutput())
             ->and($setup->getOutput())->toContain('driver=sqlite', 'setup=ok', 'queue='.$queue);
 
-        $pdo = new PDO('sqlite:'.$database);
-        $pdo->exec('update jobs set available_at = 0');
+        $setupPdo = new PDO('sqlite:'.$database);
+        $setupPdo->exec('update jobs set available_at = 0');
+        unset($setupPdo);
 
         $worker = new Process([
             PHP_BINARY,
@@ -67,10 +68,12 @@ it('restores tenant translation context in a real database queue worker', functi
         expect($worker->isSuccessful())->toBeTrue($worker->getOutput().$worker->getErrorOutput())
             ->and($worker->getOutput())->toContain('TenantTranslationProbeJob');
 
+        $pdo = new PDO('sqlite:'.$database);
         $drainAttempts = 0;
         while ($drainAttempts < 3 && (int) $pdo->query("select count(*) from jobs where queue = '{$queue}'")->fetchColumn() > 0) {
             $drainAttempts++;
             $pdo->exec('update jobs set available_at = 0');
+            unset($pdo);
             $drainWorker = new Process([
                 PHP_BINARY,
                 $fixture.'/artisan.php',
@@ -84,6 +87,7 @@ it('restores tenant translation context in a real database queue worker', functi
                 '--no-interaction',
             ], $fixture, $environment, timeout: 60);
             $drainWorker->run();
+            $pdo = new PDO('sqlite:'.$database);
             if (! $drainWorker->isSuccessful()) {
                 break;
             }
@@ -109,6 +113,19 @@ it('restores tenant translation context in a real database queue worker', functi
             'worker_output' => $worker->getOutput(),
             'worker_error' => $worker->getErrorOutput(),
         ], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT);
+
+        $expectedResults = [
+            ['result_key' => 'a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
+            ['result_key' => 'b-bg', 'tenant_id' => TenantTranslationScenario::B, 'value' => 'B requested'],
+            ['result_key' => 'failure-a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
+            ['result_key' => 'worker-scope', 'tenant_id' => null, 'value' => 'en'],
+        ];
+
+        foreach ($expectedResults as $expectedResult) {
+            if (! in_array($expectedResult, $results, true)) {
+                test()->fail('Missing expected probe result '.json_encode($expectedResult).":\n".$diagnostics);
+            }
+        }
 
         expect($results)->toContain(
             ['result_key' => 'a-en', 'tenant_id' => TenantTranslationScenario::A, 'value' => 'A fallback'],
