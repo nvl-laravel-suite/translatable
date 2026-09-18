@@ -8,18 +8,16 @@ use Closure;
 use Illuminate\Contracts\Foundation\MaintenanceMode;
 use Nvl\Tenancy\Contracts\TenantDirectory;
 use Nvl\Tenancy\Enums\TenantResourceKind;
-use Nvl\Tenancy\Enums\TenantStatus;
-use Nvl\Tenancy\Exceptions\TenantNotFound;
 use Nvl\Tenancy\Services\TenantAdoptionCoordinator;
 use Nvl\Tenancy\Services\TenantAdoptionRegistry;
 use Nvl\Tenancy\Services\TenantBoundary;
 use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Tenancy\Services\TenantRunner;
 use Nvl\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Tenancy\ValueObjects\TenantDescriptor;
 use Nvl\Tenancy\ValueObjects\TenantId;
 use Nvl\Tenancy\ValueObjects\TenantResourceDefinition;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
+use Nvl\Translatable\Tests\Fixtures\TenantTranslationFixtureDirectory;
 
 /** Installs and seeds real adopted storage through the public tenant lifecycle. */
 final class TenantTranslationScenario
@@ -47,18 +45,7 @@ final class TenantTranslationScenario
             $migration = require dirname(__DIR__, 3).'/tenancy/database/migrations/tenancy/2026_09_16_000001_create_tenancy_core_tables.php';
             $migration->up();
         }
-        app()->instance(TenantDirectory::class, new class implements TenantDirectory
-        {
-            /** Resolve only the fixture's two active tenants. */
-            public function find(TenantId $id): TenantDescriptor
-            {
-                if (! in_array($id->value, [TenantTranslationScenario::A, TenantTranslationScenario::B], true)) {
-                    throw new TenantNotFound;
-                }
-
-                return new TenantDescriptor($id, TenantStatus::Active);
-            }
-        });
+        app()->instance(TenantDirectory::class, new TenantTranslationFixtureDirectory);
         $resources = app(TenantResourceRegistry::class);
         $resources->register(new TenantResourceDefinition(
             'test.entries',

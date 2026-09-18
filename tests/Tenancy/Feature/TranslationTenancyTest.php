@@ -129,7 +129,7 @@ it('replaces and protects final self locales only inside the locked tenant group
         ->and($s->run($s::B, fn () => TenantSelfEntry::query()->withAllTranslations()->orderBy('locale')->pluck('name', 'locale')->all()))
         ->toBe(['bg' => 'B bg', 'en' => 'B en']);
 
-    $remaining = $s->run($s::A, fn () => TenantSelfEntry::query()->where('entry_key', 'same')->firstOrFail());
+    $remaining = $s->run($s::A, fn () => TenantSelfEntry::query()->translationGroup('same')->firstOrFail());
 
     expect(fn () => $s->run($s::A, fn () => $remaining->getConnection()->transaction(
         fn () => app(TranslationWriter::class)->delete($remaining, 'bg'),
