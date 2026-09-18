@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Nvl\Tenancy\Contracts\TenantContext;
 use Nvl\Tenancy\Enums\TenantContextMode;
 use Nvl\Tenancy\Enums\TenantResourceKind;
@@ -108,7 +109,8 @@ final readonly class TranslationOwnership
         if (! $owner->exists || (! is_string($key) && ! is_int($key))) {
             throw new TenantBoundaryViolation('Translation locking requires a persisted owner.');
         }
-        $persisted = $this->query($owner->newQuery(), $definition)->whereKey($key)->lockForUpdate()->first();
+        $ownerQuery = $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class);
+        $persisted = $this->query($ownerQuery, $definition)->whereKey($key)->lockForUpdate()->first();
         if (! $persisted instanceof Model) {
             throw new TenantBoundaryViolation('The canonical translation owner is unavailable.');
         }

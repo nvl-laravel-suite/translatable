@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Tenancy\Services\TenantBoundary;
@@ -197,7 +198,10 @@ final readonly class RelatedTranslationStore
         }
         $childResource = $this->resources->forModel($canonical);
         $this->boundary->query($query, $childResource->key);
-        $owners = $this->ownership->query($owner->newQuery(), $definition);
+        $owners = $this->ownership->query(
+            $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class),
+            $definition,
+        );
         $owners->select($owner->qualifyColumn($definition->ownerKey));
         $owners->whereColumn($owner->qualifyColumn($definition->ownerKey), $query->qualifyColumn($definition->foreignKey($owner->getTable())));
         foreach ($this->ownership->partitionColumns($definition) as $column) {

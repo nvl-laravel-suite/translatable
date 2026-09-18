@@ -126,7 +126,7 @@ it('replaces and protects final self locales only inside the locked tenant group
 
     expect($s->run($s::A, fn () => $a->getAllTranslations()->pluck('name', 'locale')->all()))
         ->toBe(['bg' => 'A only'])
-        ->and($s->run($s::B, fn () => TenantSelfEntry::query()->orderBy('locale')->pluck('name', 'locale')->all()))
+        ->and($s->run($s::B, fn () => TenantSelfEntry::query()->withAllTranslations()->orderBy('locale')->pluck('name', 'locale')->all()))
         ->toBe(['bg' => 'B bg', 'en' => 'B en']);
 
     $remaining = $s->run($s::A, fn () => TenantSelfEntry::query()->where('entry_key', 'same')->firstOrFail());
@@ -709,11 +709,18 @@ it('keeps native related reads inside the canonical owner partition', function (
     $s = TenantTranslationScenario::install();
     $a = $s->article($s::A, 'same', ['en' => ['name' => 'A']]);
     $s->article($s::B, 'same', ['en' => ['name' => 'B']]);
-    Schema::disableForeignKeyConstraints();
-    try {
-        TenantArticleTranslation::forceCreate(['tenant_id' => $s::B, 'article_id' => $a->id, 'locale' => 'bg', 'name' => 'B injected']);
-    } finally {
-        Schema::enableForeignKeyConstraints();
+    if ($a->getConnection()->getDriverName() === 'pgsql') {
+        expect(collect(Schema::getForeignKeys('tenant_test_article_translations'))->contains(
+            static fn (array $foreign): bool => $foreign['columns'] === ['tenant_id', 'article_id']
+                && $foreign['foreign_columns'] === ['tenant_id', 'id'],
+        ))->toBeTrue();
+    } else {
+        Schema::disableForeignKeyConstraints();
+        try {
+            TenantArticleTranslation::forceCreate(['tenant_id' => $s::B, 'article_id' => $a->id, 'locale' => 'bg', 'name' => 'B injected']);
+        } finally {
+            Schema::enableForeignKeyConstraints();
+        }
     }
     $s->run($s::A, function () use ($a, $read): void {
         $names = match ($read) {
