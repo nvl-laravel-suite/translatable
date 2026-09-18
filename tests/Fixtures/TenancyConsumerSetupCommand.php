@@ -155,7 +155,8 @@ final class TenancyConsumerSetupCommand extends Command
         $this->dispatchProbe($runner, TenantTranslationScenario::A, $recordA, 'en', 'corrupt-before-read', $queue);
 
         $connection = DB::connection();
-        $job = $connection->table('jobs')->where('queue', $queue)->orderByDesc('id')->first();
+        $job = $connection->table('jobs')->where('queue', $queue)->where('payload', 'like', '%corrupt-before-read%')->first()
+            ?? $connection->table('jobs')->where('queue', $queue)->orderByDesc('id')->first();
         if (! is_object($job) || ! is_string($job->payload ?? null)) {
             throw new RuntimeException('The final serialized probe was not stored.');
         }
