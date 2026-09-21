@@ -4,6 +4,8 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-21
+
 ### Added
 
 - Added opt-in tenant ownership declarations and tenant-only or mixed-catalog
