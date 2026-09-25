@@ -1,5 +1,11 @@
 # Contributing to NVL Translatable
 
+This public repository is a publication mirror of private source. Open an issue
+here for a bug or proposal; include a reproduction and, if helpful, a patch.
+Maintainers apply accepted changes in source and publish a mirror release.
+Direct mirror pull requests do not update source. See the
+[organization contribution guide](https://github.com/nvl-laravel-suite/.github/blob/main/CONTRIBUTING.md).
+
 Changes must preserve explicit typed declarations, both storage strategies,
 deterministic field-level fallback, locale isolation, and transport-agnostic
 core services. HTTP integration must remain confined to middleware adapters.
