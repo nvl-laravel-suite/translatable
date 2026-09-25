@@ -48,6 +48,3 @@ payloads when they may contain personal or confidential content.
 Run `php artisan nvl:translatable:doctor` during deployment checks. Treat
 cross-connection definitions, missing columns or unique indexes, unsupported
 locales, and invalid mutation limits as deployment blockers.
-
-<!-- tenancy-program-p2 -->
-The configurable-tenancy implementation is present; its consolidated verification matrix remains pending and no release-readiness claim is made.
