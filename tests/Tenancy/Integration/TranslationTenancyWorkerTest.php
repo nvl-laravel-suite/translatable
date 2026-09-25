@@ -22,12 +22,14 @@ it('restores tenant translation context in a real database queue worker', functi
             $fixture.'/app',
             $fixture.'/bootstrap/cache',
             $fixture.'/storage/framework/cache/data',
+            $fixture.'/storage/framework/views',
             $fixture.'/storage/logs',
         ]);
         touch($database);
 
         $environment = [
             'APP_ENV' => 'testing',
+            'APP_BASE_PATH' => $fixture,
             'APP_KEY' => 'base64:'.base64_encode(str_repeat('a', 32)),
             'NVL_TEST_SUITE_ROOT' => $root,
             'DB_CONNECTION' => 'sqlite',

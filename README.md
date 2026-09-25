@@ -1,12 +1,12 @@
 # NVL Translatable — API and usage
 
-[← NVL Laravel Suite](../../../README.md)
+[← NVL Laravel Suite](https://github.com/nvl-laravel-suite)
 
 ## Quick reference
 
 | Item | Value |
 |---|---|
-| Installed through | `composer require nvl/laravel-suite:^2.0` |
+| Installed through | `composer require nvl/translatable:^2.0` |
 | Module identifier | `nvl/translatable` |
 | PHP namespace | `Nvl\Translatable` |
 | Service provider | `Nvl\Translatable\Providers\TranslatableServiceProvider` |
@@ -55,12 +55,12 @@ cookies.
 
 - PHP `^8.3`
 - Laravel `^13.0`
-- `nvl/data` for public DTO and TypeScript declarations
+- `nvl/core` for public DTO and TypeScript declarations
 
 ## Installation
 
 ```bash
-composer require nvl/laravel-suite:^2.0
+composer require nvl/translatable:^2.0
 php artisan vendor:publish --tag=translatable-config
 ```
 
@@ -754,7 +754,7 @@ version, and new version, and run only after commit.
 
 ## TypeScript
 
-The provider registers public DTOs with `nvl/data`:
+The provider registers public DTOs with Core's Data provider:
 
 ```bash
 php artisan nvl:data:types:generate
