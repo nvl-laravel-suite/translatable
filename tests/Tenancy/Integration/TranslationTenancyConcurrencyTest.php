@@ -33,6 +33,7 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
             $fixture.'/app',
             $fixture.'/bootstrap/cache',
             $fixture.'/storage/framework/cache/data',
+            $fixture.'/storage/framework/views',
             $fixture.'/storage/logs',
         ]);
 
