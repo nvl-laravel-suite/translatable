@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Exceptions;
 
 /**
  * Reports an attempt to access or query a field outside a model's translation definition.
+ *
+ * @api
  */
 final class InvalidTranslatableFieldException extends TranslatableException
 {

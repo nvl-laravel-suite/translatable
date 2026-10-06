@@ -13,6 +13,8 @@ use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 
 /**
  * Defines immutable persistence, field, and fallback behavior for one translatable owner model.
+ *
+ * @api
  */
 final readonly class TranslatableOptions
 {

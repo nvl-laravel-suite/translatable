@@ -10,6 +10,8 @@ use Nvl\Translatable\RelatedTranslationDefinition;
 
 /**
  * Defines a translatable owner model using a dedicated related-row table.
+ *
+ * @api
  */
 interface TranslatableModel extends TranslatableResourceModel
 {

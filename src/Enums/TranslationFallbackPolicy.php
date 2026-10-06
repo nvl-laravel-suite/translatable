@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Enums;
 
 /**
  * Defines how a missing requested locale may resolve to another locale.
+ *
+ * @api
  */
 enum TranslationFallbackPolicy: string
 {

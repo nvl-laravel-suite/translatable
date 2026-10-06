@@ -11,6 +11,8 @@ use Nvl\Translatable\TranslationResolution;
 
 /**
  * Defines behavior shared by every translatable Eloquent storage strategy.
+ *
+ * @api
  */
 interface TranslatableResourceModel
 {

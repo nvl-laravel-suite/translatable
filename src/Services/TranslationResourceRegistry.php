@@ -15,6 +15,8 @@ use Nvl\Translatable\TranslationResourceDefinition;
 
 /**
  * Stores every translatable model resource available to centralized tooling.
+ *
+ * @api
  */
 final class TranslationResourceRegistry
 {

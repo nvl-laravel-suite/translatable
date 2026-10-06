@@ -23,6 +23,8 @@ use Nvl\Translatable\Services\TranslationWriter;
 
 /**
  * Deletes one locale row from an owner registered in the central resource catalog.
+ *
+ * @api
  */
 final readonly class DeleteTranslationResourceLocaleAction
 {

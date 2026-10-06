@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Exceptions;
 
 /**
  * Reports a malformed or unsupported content locale.
+ *
+ * @api
  */
 final class InvalidLocaleException extends TranslatableException
 {

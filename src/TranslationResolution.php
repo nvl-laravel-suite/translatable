@@ -6,6 +6,8 @@ namespace Nvl\Translatable;
 
 /**
  * Describes the outcome and provenance of one translated field resolution.
+ *
+ * @api
  */
 final readonly class TranslationResolution
 {

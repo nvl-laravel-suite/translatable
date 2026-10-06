@@ -12,6 +12,8 @@ use Nvl\Translatable\Enums\Locale;
 
 /**
  * Manages the request-scoped content locale independently from Laravel's UI locale.
+ *
+ * @api
  */
 final readonly class ContentLocale
 {

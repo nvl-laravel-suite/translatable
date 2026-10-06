@@ -17,6 +17,8 @@ use Nvl\Translatable\Support\LocaleCode;
 
 /**
  * Defines validated fields, locales, and fallback behavior shared by every translation strategy.
+ *
+ * @api
  */
 abstract readonly class TranslationDefinition
 {

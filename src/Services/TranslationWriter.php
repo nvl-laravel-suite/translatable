@@ -19,6 +19,8 @@ use Nvl\Translatable\TranslationDefinition;
 
 /**
  * Validates and persists translation maps through the model's declared storage strategy.
+ *
+ * @api
  */
 final readonly class TranslationWriter
 {

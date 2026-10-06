@@ -9,6 +9,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Result of a committed translation synchronization.
+ *
+ * @api
  */
 #[TypeScript]
 final class TranslationMutationResultData extends Data

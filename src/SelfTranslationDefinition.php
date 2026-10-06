@@ -12,6 +12,8 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 
 /**
  * Defines translations stored as grouped locale rows in the resource table itself.
+ *
+ * @api
  */
 final readonly class SelfTranslationDefinition extends TranslationDefinition
 {

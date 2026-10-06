@@ -25,6 +25,8 @@ use Nvl\Translatable\Services\TranslationWriter;
 
 /**
  * Synchronizes locale rows for any owner registered in the central resource catalog.
+ *
+ * @api
  */
 final readonly class SyncTranslationResourceAction
 {

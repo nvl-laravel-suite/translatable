@@ -8,6 +8,8 @@ use InvalidArgumentException;
 
 /**
  * Reports invalid centralized translation resource registration or mutation.
+ *
+ * @api
  */
 final class TranslationResourceException extends InvalidArgumentException
 {

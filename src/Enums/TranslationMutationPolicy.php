@@ -8,6 +8,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Controls whether the central resource API may write translation rows directly.
+ *
+ * @api
  */
 #[TypeScript]
 enum TranslationMutationPolicy: string

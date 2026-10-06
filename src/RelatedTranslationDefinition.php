@@ -13,6 +13,8 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 
 /**
  * Defines translations stored in rows related to a canonical owner model.
+ *
+ * @api
  */
 final readonly class RelatedTranslationDefinition extends TranslationDefinition
 {

@@ -14,6 +14,8 @@ use Nvl\Translatable\Support\LocaleCode;
 
 /**
  * Validates that an associative payload uses supported, unambiguous locale keys.
+ *
+ * @api
  */
 final readonly class SupportedLocaleMapRule implements ValidationRule
 {

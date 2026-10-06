@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Contracts;
 
 /**
  * Resolves an optional content-locale preference from an application-owned source.
+ *
+ * @api
  */
 interface ContentLocalePreferenceResolver
 {

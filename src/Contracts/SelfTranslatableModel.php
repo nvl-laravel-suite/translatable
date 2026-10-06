@@ -8,6 +8,8 @@ use Nvl\Translatable\SelfTranslationDefinition;
 
 /**
  * Marks a model whose locale rows are grouped in the resource table itself.
+ *
+ * @api
  */
 interface SelfTranslatableModel extends TranslatableResourceModel
 {

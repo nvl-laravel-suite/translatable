@@ -8,6 +8,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Abilities enforced by the central translation registry.
+ *
+ * @api
  */
 #[TypeScript]
 enum TranslationResourceAbility: string

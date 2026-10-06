@@ -17,6 +17,8 @@ use Nvl\Translatable\Exceptions\TranslationResourceException;
 
 /**
  * Defines one translatable Eloquent resource exposed through the central catalog.
+ *
+ * @api
  */
 final readonly class TranslationResourceDefinition
 {

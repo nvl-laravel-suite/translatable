@@ -10,6 +10,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Versioned mutation for one registered translation owner.
+ *
+ * @api
  */
 #[TypeScript]
 final class TranslationMutationData extends Data

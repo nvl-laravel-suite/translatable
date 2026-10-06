@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Enums;
 
 /**
  * Defines whether a translation mutation preserves or removes omitted locales.
+ *
+ * @api
  */
 enum TranslationSyncMode: string
 {

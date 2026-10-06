@@ -9,6 +9,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Versioned request to delete one locale row.
+ *
+ * @api
  */
 #[TypeScript]
 final class DeleteTranslationLocaleData extends Data

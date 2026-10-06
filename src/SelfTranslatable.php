@@ -32,6 +32,8 @@ use Nvl\Translatable\Services\TranslationResolver;
  * @method static Builder<static> orderByTranslated(string $field, string $direction = 'asc', ?string $locale = null)
  *
  * @mixin Model
+ *
+ * @api
  */
 trait SelfTranslatable
 {

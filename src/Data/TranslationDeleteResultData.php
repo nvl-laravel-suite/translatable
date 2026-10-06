@@ -9,6 +9,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Result of a committed locale deletion.
+ *
+ * @api
  */
 #[TypeScript]
 final class TranslationDeleteResultData extends Data

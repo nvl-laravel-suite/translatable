@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Enums;
 
 /**
  * Identifies how a model persists the rows representing its translations.
+ *
+ * @api
  */
 enum TranslationStorageStrategy: string
 {

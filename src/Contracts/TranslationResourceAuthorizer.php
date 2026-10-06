@@ -11,6 +11,8 @@ use Nvl\Translatable\TranslationResourceDefinition;
 
 /**
  * Authorizes access to registered translation resources.
+ *
+ * @api
  */
 interface TranslationResourceAuthorizer
 {

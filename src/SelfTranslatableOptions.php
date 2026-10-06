@@ -12,6 +12,8 @@ use Nvl\Translatable\Enums\TranslationMutationPolicy;
  *
  * Used when translations are stored in the same table as rows
  * with different locale values, rather than in separate tables.
+ *
+ * @api
  */
 final readonly class SelfTranslatableOptions
 {

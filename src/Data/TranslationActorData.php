@@ -9,6 +9,8 @@ use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
 /**
  * Stable actor identity carried through authorization and events.
+ *
+ * @api
  */
 #[TypeScript]
 final class TranslationActorData extends Data

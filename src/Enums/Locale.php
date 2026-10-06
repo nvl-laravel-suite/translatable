@@ -6,6 +6,8 @@ namespace Nvl\Translatable\Enums;
 
 /**
  * Provides the package's built-in English and Bulgarian locale metadata.
+ *
+ * @api
  */
 enum Locale: string
 {
