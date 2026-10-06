@@ -423,7 +423,7 @@ it('preserves configured visibility for self-row search candidates', function ()
 });
 
 it('reports platform catalog metadata without scanning it from tenant context', function (): void {
-    config()->set('tenancy.resources.test', 'platform');
+    config()->set('nvl-tenancy.resources.test', 'platform');
     $s = TenantTranslationScenario::install(mixedEntries: true);
     app(TenantRunner::class)->platform(
         new PlatformOperation('fixture.adoption', 'test', 'fixture'),
@@ -495,7 +495,7 @@ it('reports the exact tenant self unique index fix without applying it', functio
 
 it('diagnoses undeclared legacy ownership after tenancy is enabled', function (): void {
     TenantTranslationScenario::install();
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
     app(TranslationResourceRegistry::class)->register(
         key: 'test.legacy-models',
         modelClass: TestTranslatableModel::class,

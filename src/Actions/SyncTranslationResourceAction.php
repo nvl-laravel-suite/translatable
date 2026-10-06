@@ -171,7 +171,7 @@ final readonly class SyncTranslationResourceAction
      */
     private function transactionAttempts(): int
     {
-        $attempts = $this->config->get('translatable.transactions.attempts', 3);
+        $attempts = $this->config->get('nvl-translatable.transactions.attempts', 3);
 
         if (! is_int($attempts) || $attempts < 1) {
             throw TranslationResourceException::invalid(

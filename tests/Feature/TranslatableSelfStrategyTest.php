@@ -23,8 +23,8 @@ use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\TranslationResourceQuery;
 
 beforeEach(function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
-    config()->set('translatable.fallback_locales', ['en']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.fallback_locales', ['en']);
 
     Schema::dropIfExists('test_self_translatable_models');
     Schema::create('test_self_translatable_models', function (Blueprint $table): void {
@@ -346,7 +346,7 @@ test('self-row resource scopes hide records consistently from locked writes', fu
 });
 
 test('it bounds mutation payloads before changing grouped resources', function (): void {
-    config()->set('translatable.limits.mutation_locales', 1);
+    config()->set('nvl-translatable.limits.mutation_locales', 1);
     $model = TestSelfTranslatableModel::create([
         'entry_key' => 'catalog.bounded',
         'locale' => 'en',
@@ -362,7 +362,7 @@ test('it bounds mutation payloads before changing grouped resources', function (
 });
 
 test('self-row convenience mutations enforce object nesting limits before writing', function (): void {
-    config()->set('translatable.limits.mutation_depth', 3);
+    config()->set('nvl-translatable.limits.mutation_depth', 3);
     $model = TestSelfTranslatableModel::create([
         'entry_key' => 'catalog.nested',
         'locale' => 'en',
@@ -385,7 +385,7 @@ test('the doctor validates global configuration and grouped schema invariants', 
         ->expectsOutputToContain('"healthy": true')
         ->assertSuccessful();
 
-    config()->set('translatable.default_locale', 'fr');
+    config()->set('nvl-translatable.default_locale', 'fr');
 
     $report = app(TranslationDoctor::class)->inspect();
 
@@ -393,8 +393,8 @@ test('the doctor validates global configuration and grouped schema invariants', 
         ->and(implode(' ', $report->errors))->toContain('default_locale');
 
     config()->set([
-        'translatable.default_locale' => 'en',
-        'translatable.locales' => ['en'],
+        'nvl-translatable.default_locale' => 'en',
+        'nvl-translatable.locales' => ['en'],
     ]);
 
     $localeReport = app(TranslationDoctor::class)->inspect();
@@ -427,7 +427,7 @@ test('the doctor validates resource metadata columns and transaction configurati
         label: 'Invalid metadata',
         displayColumns: ['missing_column'],
     );
-    config()->set('translatable.transactions.attempts', 0);
+    config()->set('nvl-translatable.transactions.attempts', 0);
     $report = app(TranslationDoctor::class)->inspect();
     $errors = implode(' ', $report->errors);
 

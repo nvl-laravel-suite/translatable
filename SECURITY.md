@@ -2,7 +2,7 @@
 
 Submit reports through [this package's private vulnerability reporting form](https://github.com/nvl-laravel-suite/translatable/security/advisories/new).
 
-Security fixes are provided for the current `2.x` release line on the
+Security fixes are provided for the prepared `5.x` release line on the
 Composer-declared PHP `^8.3` and Laravel `^13.0` ranges.
 
 Report vulnerabilities privately through the repository host's

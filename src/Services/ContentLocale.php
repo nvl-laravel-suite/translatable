@@ -136,7 +136,7 @@ final readonly class ContentLocale
     {
         $locale = $this->get();
         $labelType = $native ? 'native' : 'international';
-        $label = $this->config->get("translatable.labels.{$locale}.{$labelType}");
+        $label = $this->config->get("nvl-translatable.labels.{$locale}.{$labelType}");
 
         return is_string($label) ? $label : $locale;
     }
@@ -153,11 +153,11 @@ final readonly class ContentLocale
         return array_values(collect($this->available())
             ->map(function (string $locale) use ($currentLocale): array {
                 $internationalLabel = $this->config->get(
-                    "translatable.labels.{$locale}.international",
+                    "nvl-translatable.labels.{$locale}.international",
                     $locale,
                 );
                 $nativeLabel = $this->config->get(
-                    "translatable.labels.{$locale}.native",
+                    "nvl-translatable.labels.{$locale}.native",
                     $locale,
                 );
 

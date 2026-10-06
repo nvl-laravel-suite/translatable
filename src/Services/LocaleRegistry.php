@@ -29,7 +29,7 @@ final readonly class LocaleRegistry
      */
     public function supported(): array
     {
-        $configured = $this->config->get('translatable.locales')
+        $configured = $this->config->get('nvl-translatable.locales')
             ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->supported();
 
         if (! is_array($configured) || $configured === []) {
@@ -68,7 +68,7 @@ final readonly class LocaleRegistry
      */
     public function fallbacks(): array
     {
-        $configured = $this->config->get('translatable.fallback_locales')
+        $configured = $this->config->get('nvl-translatable.fallback_locales')
             ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->fallbacks();
 
         if (! is_array($configured)) {
@@ -105,7 +105,7 @@ final readonly class LocaleRegistry
      */
     public function default(): string
     {
-        $configured = $this->config->get('translatable.default_locale')
+        $configured = $this->config->get('nvl-translatable.default_locale')
             ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->default();
 
         if (! is_string($configured)) {

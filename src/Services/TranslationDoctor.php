@@ -76,7 +76,7 @@ final readonly class TranslationDoctor
     {
         $errors = $this->localeDiagnostics->inspect()['errors'];
         $catalog = $this->catalogConfiguration();
-        $configuredLocales = $this->config->get('translatable.locales') ?? $catalog['locales'];
+        $configuredLocales = $this->config->get('nvl-translatable.locales') ?? $catalog['locales'];
 
         if (! is_array($configuredLocales) || $configuredLocales === []) {
             $errors[] = 'translatable.locales must contain at least one locale.';
@@ -107,13 +107,13 @@ final readonly class TranslationDoctor
             $locales[] = $normalized;
         }
 
-        $default = $this->config->get('translatable.default_locale') ?? $catalog['default'];
+        $default = $this->config->get('nvl-translatable.default_locale') ?? $catalog['default'];
 
         if (! is_string($default) || ! $this->containsLocale($locales, $default)) {
             $errors[] = 'translatable.default_locale must be one of the supported locales.';
         }
 
-        $fallbacks = $this->config->get('translatable.fallback_locales') ?? $catalog['fallbacks'];
+        $fallbacks = $this->config->get('nvl-translatable.fallback_locales') ?? $catalog['fallbacks'];
 
         if (! is_array($fallbacks)) {
             $errors[] = 'translatable.fallback_locales must be an array.';
@@ -137,13 +137,13 @@ final readonly class TranslationDoctor
             }
         }
 
-        $policy = $this->config->get('translatable.fallback.policy');
+        $policy = $this->config->get('nvl-translatable.fallback.policy');
 
         if (! is_string($policy) || TranslationFallbackPolicy::tryFrom($policy) === null) {
             $errors[] = 'translatable.fallback.policy is invalid.';
         }
 
-        if (! is_bool($this->config->get('translatable.fallback.on_null'))) {
+        if (! is_bool($this->config->get('nvl-translatable.fallback.on_null'))) {
             $errors[] = 'translatable.fallback.on_null must be boolean.';
         }
 
@@ -153,28 +153,28 @@ final readonly class TranslationDoctor
             'mutation_value_bytes',
             'mutation_depth',
         ] as $limit) {
-            $value = $this->config->get("translatable.limits.{$limit}");
+            $value = $this->config->get("nvl-translatable.limits.{$limit}");
 
             if (! is_int($value) || $value < 1) {
                 $errors[] = "translatable.limits.{$limit} must be a positive integer.";
             }
         }
 
-        $transactionAttempts = $this->config->get('translatable.transactions.attempts');
+        $transactionAttempts = $this->config->get('nvl-translatable.transactions.attempts');
 
         if (! is_int($transactionAttempts) || $transactionAttempts < 1) {
             $errors[] = 'translatable.transactions.attempts must be a positive integer.';
         }
 
         foreach (['query_parameter', 'session_key', 'cookie_name'] as $option) {
-            $value = $this->config->get("translatable.middleware.{$option}");
+            $value = $this->config->get("nvl-translatable.middleware.{$option}");
 
             if ($value !== null && (! is_string($value) || trim($value) === '')) {
                 $errors[] = "translatable.middleware.{$option} must be a non-empty string or null.";
             }
         }
 
-        $cookieMinutes = $this->config->get('translatable.middleware.cookie_minutes');
+        $cookieMinutes = $this->config->get('nvl-translatable.middleware.cookie_minutes');
 
         if (! is_int($cookieMinutes) || $cookieMinutes < 1) {
             $errors[] = 'translatable.middleware.cookie_minutes must be a positive integer.';
@@ -190,8 +190,8 @@ final readonly class TranslationDoctor
      */
     private function configurationWarnings(): array
     {
-        $configuredLocales = $this->config->get('translatable.locales') ?? $this->catalogConfiguration()['locales'];
-        $labels = $this->config->get('translatable.labels', []);
+        $configuredLocales = $this->config->get('nvl-translatable.locales') ?? $this->catalogConfiguration()['locales'];
+        $labels = $this->config->get('nvl-translatable.labels', []);
 
         if (! is_array($configuredLocales) || ! is_array($labels)) {
             return [];
@@ -521,7 +521,7 @@ final readonly class TranslationDoctor
         array &$errors,
     ): array {
         if ($definition->ownershipResource === null) {
-            if ($this->config->get('tenancy.enabled') === true) {
+            if ($this->config->get('nvl-tenancy.enabled') === true) {
                 $errors[] = "Resource [{$resource->key}] must declare an ownership resource key before tenancy is enabled.";
             }
 

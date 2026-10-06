@@ -11,6 +11,7 @@ use Nvl\Support\Doctor\PackageDoctorContributor;
 use Nvl\Support\Providers\SupportServiceProvider;
 use Nvl\Support\Providers\TenantServiceProvider;
 use Nvl\Support\Traits\MergesPackageConfiguration;
+use Nvl\Support\Traits\RegistersNamespacedResources;
 use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Console\Commands\GatherTranslationResourcesCommand;
@@ -40,6 +41,7 @@ use Nvl\Translatable\Services\TranslationWriter;
 final class TranslatableServiceProvider extends ServiceProvider
 {
     use MergesPackageConfiguration;
+    use RegistersNamespacedResources;
 
     /**
      * Register translation services and default integrations.
@@ -61,7 +63,7 @@ final class TranslatableServiceProvider extends ServiceProvider
 
         $this->app->register(TenantServiceProvider::class);
         $this->mergePackageConfiguration(
-            __DIR__.'/../../config/translatable.php',
+            __DIR__.'/../../config/nvl-translatable.php',
             'translatable',
         );
 
@@ -101,7 +103,7 @@ final class TranslatableServiceProvider extends ServiceProvider
         $typeScriptSources->register(__DIR__.'/..', 'nvl/translatable');
 
         $this->publishes([
-            __DIR__.'/../../config/translatable.php' => config_path('translatable.php'),
+            __DIR__.'/../../config/nvl-translatable.php' => config_path('nvl-translatable.php'),
         ], 'translatable-config');
 
         $this->publishes([
@@ -123,7 +125,7 @@ final class TranslatableServiceProvider extends ServiceProvider
      */
     private function registerConfiguredResources(TranslationResourceRegistry $resources): void
     {
-        $configuredResources = config('translatable.resources', []);
+        $configuredResources = config('nvl-translatable.resources', []);
 
         if (! is_array($configuredResources)) {
             throw TranslationResourceException::invalid(

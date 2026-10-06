@@ -17,7 +17,7 @@ afterEach(function (): void {
 });
 
 test('translation resource keys reference shared owners while keeping authorization metadata', function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
     config()->set('nvl-core.owners', ['article' => TestTranslatableModel::class]);
     $registry = app(TranslationResourceRegistry::class);
     $resource = $registry->register(

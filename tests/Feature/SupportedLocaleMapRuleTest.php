@@ -7,7 +7,7 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Rules\SupportedLocaleMapRule;
 
 beforeEach(function (): void {
-    config(['translatable.locales' => ['en', 'bg', 'en-US']]);
+    config(['nvl-translatable.locales' => ['en', 'bg', 'en-US']]);
 });
 
 test('supported locale map rule accepts configured locale keys', function (): void {
@@ -74,7 +74,7 @@ test('supported locale map rule rejects keys that normalize to the same locale',
 });
 
 test('supported locale map rule fails explicitly for an invalid locale catalog', function (): void {
-    config(['translatable.locales' => ['en', 42]]);
+    config(['nvl-translatable.locales' => ['en', 42]]);
 
     expect(fn () => Validator::make([
         'translations' => ['en' => ['title' => 'Hello']],

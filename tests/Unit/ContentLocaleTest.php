@@ -8,8 +8,8 @@ use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\LocaleRegistry;
 
 beforeEach(function (): void {
-    Config::set('translatable.locales', ['en', 'bg', 'en-GB']);
-    Config::set('translatable.fallback_locales', ['en']);
+    Config::set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    Config::set('nvl-translatable.fallback_locales', ['en']);
     $this->service = app(ContentLocale::class);
     $this->service->reset();
 });
@@ -24,7 +24,7 @@ test('it falls back to the supported application locale', function (): void {
 
 test('it uses the configured content default when the application locale is unsupported', function (): void {
     App::setLocale('invalid_locale');
-    Config::set('translatable.default_locale', 'bg');
+    Config::set('nvl-translatable.default_locale', 'bg');
     Config::set('app.fallback_locale', 'en');
 
     expect($this->service->get())->toBe('bg');
@@ -77,9 +77,9 @@ test('it provides configured locale options', function (): void {
 });
 
 test('it builds global fallback chains with locale parents and the configured default', function (): void {
-    Config::set('translatable.locales', ['en', 'zh', 'zh-Hant', 'zh-Hant-TW', 'bg']);
-    Config::set('translatable.default_locale', 'bg');
-    Config::set('translatable.fallback_locales', ['en']);
+    Config::set('nvl-translatable.locales', ['en', 'zh', 'zh-Hant', 'zh-Hant-TW', 'bg']);
+    Config::set('nvl-translatable.default_locale', 'bg');
+    Config::set('nvl-translatable.fallback_locales', ['en']);
 
     expect(app(LocaleRegistry::class)->chain('zh-Hant-TW'))->toBe([
         'zh-Hant-TW',

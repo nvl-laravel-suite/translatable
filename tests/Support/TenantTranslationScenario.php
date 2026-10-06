@@ -37,8 +37,8 @@ final class TenantTranslationScenario
             $database->setDefaultConnection($connection);
         }
         config([
-            'tenancy.enabled' => true,
-            'tenancy.connection' => $connection,
+            'nvl-tenancy.enabled' => true,
+            'nvl-tenancy.connection' => $connection,
         ]);
         if ($connection !== null
             && ! app('db')->connection($connection)->getSchemaBuilder()->hasTable('nvl_tenancy_operations')) {

@@ -11,11 +11,11 @@ See the [installation and publishing guide](https://github.com/nvl-laravel-suite
 
 | Item | Value |
 |---|---|
-| Installed through | `composer require nvl/translatable:^2.0` |
+| Installed through | `composer require nvl/translatable:^5.0` |
 | Module identifier | `nvl/translatable` |
 | PHP namespace | `Nvl\Translatable` |
 | Service provider | `Nvl\Translatable\Providers\TranslatableServiceProvider` |
-| Configuration | `config/translatable.php` |
+| Configuration | `config/nvl-translatable.php` |
 
 Typed, deterministic Eloquent content translations for Laravel 13.
 
@@ -65,8 +65,8 @@ cookies.
 ## Installation
 
 ```bash
-composer require nvl/translatable:^2.0
-php artisan vendor:publish --tag=translatable-config
+composer require nvl/translatable:^5.0
+php artisan vendor:publish --tag=nvl-translatable-config
 ```
 
 Laravel package discovery registers `TranslatableServiceProvider`. The
@@ -78,7 +78,7 @@ Laravel Boost discovers the bundled `nvl-translatable` skill from
 copied directly into the host application's `.agents/skills` directory:
 
 ```bash
-php artisan vendor:publish --tag=translatable-skills
+php artisan vendor:publish --tag=nvl-translatable-skills
 ```
 
 ### Why schema generation is intentionally absent
@@ -555,7 +555,7 @@ Bind `ContentLocalePreferenceResolver` when an application stores per-user
 content-locale preferences. Reset scoped locale state between long-running
 jobs when the application does not use Laravel's normal scoped lifecycle.
 When Laravel's application locale is unsupported, `ContentLocale` uses
-`translatable.default_locale`.
+`nvl-translatable.default_locale`.
 
 The middleware accepts only supported locales and resolves sources in this
 order:
@@ -656,7 +656,7 @@ final class ArticleServiceProvider extends ServiceProvider
 ```
 
 Host applications may instead list model classes and metadata in
-`translatable.resources`. Configuration must remain serializable; do not use
+`nvl-translatable.resources`. Configuration must remain serializable; do not use
 closures in configuration files. Unknown options, malformed column lists,
 invalid page limits, and non-array resource configuration fail during package
 boot instead of silently falling back.
@@ -789,15 +789,15 @@ Released under the [MIT License](LICENSE).
 Declare a model once in `config/nvl-core.php`:
 
 ```php
-'owners' => ['article' => Article::class],
+'owners' => [Article::class],
 ```
 
-Enable this package capability separately in `config/translatable.php`:
+Enable this package capability separately in `config/nvl-translatable.php`:
 
 ```php
 'resources' => [
     'articles.editor' => [
-        'model' => 'article',
+        'model' => Article::class,
         'label' => 'Article translations',
         'display_columns' => ['slug'],
     ],
@@ -806,18 +806,22 @@ Enable this package capability separately in `config/translatable.php`:
 
 Resource keys remain independent of owner aliases. Preserve search/display columns, query scopes, resource authorization, and the model translation mutation policy. Core registration does not add the model to this package's allowlist.
 
-Existing package class/resolver/handler registrations remain accepted for one major cycle. Run `php artisan nvl:doctor --strict --format=json` to inspect compatibility diagnostics. See [UPGRADING.md](UPGRADING.md) before changing a persisted morph type.
+Laravel's `getMorphClass()` determines stored identity. These class declarations do not install host morph maps. Keep resolvers, handlers and authorization independent; use `nvl:doctor --strict --format=json` to review legacy alias mismatches or stored identity drift. See [UPGRADING.md](UPGRADING.md) before changing the host's morph map.
 
 ## Shared content locale catalog
 
 `LocaleRegistry` remains the validator for Translatable configuration. `LocaleRegistryCatalog` adapts it to Core's `Nvl\Support\Contracts\LocaleCatalog`, and package runtime consumers depend on that contract. Translatable selects its adapter across provider discovery order changes while preserving a host-bound catalog.
 
-Explicit `translatable.locales`, `default_locale`, and `fallback_locales` continue to own the installed content catalog. Fresh null defaults inherit Core's explicit content catalog or the distinct valid application locale and fallback; they do not add English or Bulgarian automatically. `ContentLocale` remains scoped and an explicitly selected content locale does not change Laravel's UI locale. Keep setting and clearing it at request/job boundaries.
+Explicit `nvl-translatable.locales`, `default_locale`, and `fallback_locales` continue to own the installed content catalog. Fresh null defaults inherit Core's explicit content catalog or the distinct valid application locale and fallback; they do not add English or Bulgarian automatically. `ContentLocale` remains scoped and an explicitly selected content locale does not change Laravel's UI locale. Keep setting and clearing it at request/job boundaries.
 
 Definitions may narrow the global catalog. Explicit resource fallback locales must be supported by that resource; global fallbacks excluded by resource narrowing are skipped. Exact-only reads remain exact, any-available fallback remains explicit and deterministic, and empty translated strings do not become missing values.
 
-Run `php artisan nvl:doctor` or `php artisan nvl:translatable:doctor` to find deprecated `primitives.locales` configuration and conflicting locale catalogs. Neither command changes stored locale values.
+Run `php artisan nvl:doctor` or `php artisan nvl:translatable:doctor` to find deprecated `nvl-primitives.locales` configuration and conflicting locale catalogs. Neither command changes stored locale values.
 
 ## Shared consumer diagnostics
 
 Run `php artisan nvl:doctor --strict --format=json` to combine the read-only checks from loaded NVL package providers. Errors fail the gate, and strict mode also fails warnings. This package's existing Doctor command remains available and uses the same package-owned inspection service.
+
+## Canonical configuration ownership
+
+Use `nvl-translatable` settings in `config/nvl-translatable.php` and canonical package environment names. Old generic roots are foreign unless an upgrading NVL host explicitly selects them in Core's default-off compatibility. Canonical false/null/empty values win; no old roots are populated or written back. Keep logical package/resource IDs unchanged. Review [Core's rename inventory and cache/worker cutover](https://github.com/nvl-laravel-suite/core/blob/main/UPGRADING.md#major-5-canonical-configuration-and-environment).

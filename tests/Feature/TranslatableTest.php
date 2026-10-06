@@ -21,8 +21,8 @@ use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
 use Nvl\Translatable\TranslatableOptions;
 
 beforeEach(function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
-    config()->set('translatable.fallback_locales', ['en']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.fallback_locales', ['en']);
 
     app(ContentLocale::class)->reset();
 
@@ -92,7 +92,7 @@ test('it resolves the normalized base locale before configured fallbacks', funct
     $writer->upsert($model, 'en', ['name' => 'Base English']);
     $writer->upsert($model, 'bg', ['name' => 'Configured fallback']);
 
-    config()->set('translatable.fallback_locales', ['bg']);
+    config()->set('nvl-translatable.fallback_locales', ['bg']);
 
     $resolution = $model->resolveTranslation('name', 'en-GB');
 
@@ -101,10 +101,10 @@ test('it resolves the normalized base locale before configured fallbacks', funct
 });
 
 test('it uses a deterministic persisted locale when any-available fallback is explicit', function (): void {
-    config()->set('translatable.default_locale', 'en');
-    config()->set('translatable.fallback_locales', []);
+    config()->set('nvl-translatable.default_locale', 'en');
+    config()->set('nvl-translatable.fallback_locales', []);
     config()->set(
-        'translatable.fallback.policy',
+        'nvl-translatable.fallback.policy',
         TranslationFallbackPolicy::AnyAvailable->value,
     );
 
@@ -121,7 +121,7 @@ test('it uses a deterministic persisted locale when any-available fallback is ex
 
 test('it never falls back when exact-only resolution is configured', function (): void {
     config()->set(
-        'translatable.fallback.policy',
+        'nvl-translatable.fallback.policy',
         TranslationFallbackPolicy::ExactOnly->value,
     );
     $model = TestTranslatableModel::create(['slug' => 'exact-only']);
@@ -162,7 +162,7 @@ test('it uses request-scoped content locale when no locale is passed', function 
 });
 
 test('it falls back when the request locale is unavailable for the model', function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB', 'fr']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB', 'fr']);
     app(ContentLocale::class)->set('fr');
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
     app(TranslationWriter::class)->upsert($model, 'en', ['name' => 'English Name']);
@@ -318,9 +318,9 @@ test('it eager loads requested and fallback translations without per-model queri
 });
 
 test('it resolves progressively less-specific locale parents', function (): void {
-    config()->set('translatable.locales', ['zh', 'zh-Hant', 'zh-Hant-TW']);
-    config()->set('translatable.default_locale', 'zh');
-    config()->set('translatable.fallback_locales', []);
+    config()->set('nvl-translatable.locales', ['zh', 'zh-Hant', 'zh-Hant-TW']);
+    config()->set('nvl-translatable.default_locale', 'zh');
+    config()->set('nvl-translatable.fallback_locales', []);
     $definition = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
         fields: ['name'],
@@ -335,7 +335,7 @@ test('it resolves progressively less-specific locale parents', function (): void
 });
 
 test('model locale overrides can only narrow the global locale catalog', function (): void {
-    config()->set('translatable.locales', ['en', 'bg']);
+    config()->set('nvl-translatable.locales', ['en', 'bg']);
 
     $definition = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
@@ -348,7 +348,7 @@ test('model locale overrides can only narrow the global locale catalog', functio
 });
 
 test('configured fallback locales must be supported by the model catalog', function (): void {
-    config()->set('translatable.locales', ['en', 'bg']);
+    config()->set('nvl-translatable.locales', ['en', 'bg']);
 
     $definition = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
@@ -393,7 +393,7 @@ test('typed declarations reject structural collisions and malformed configuratio
         ))->assertModel(new TestTimestampedTranslation))
         ->toThrow(TranslatableException::class, 'model-managed column');
 
-    config()->set('translatable.locales', ['en', 42]);
+    config()->set('nvl-translatable.locales', ['en', 42]);
     $definition = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
         fields: ['name'],

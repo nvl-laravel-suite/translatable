@@ -524,7 +524,7 @@ it('rejects undeclared ownership in enabled contexts', function (): void {
 it('denies adopted storage after disabling and removing the declaration', function (): void {
     $s = TenantTranslationScenario::install();
     $article = $s->article($s::A, 'same', []);
-    config(['tenancy.enabled' => false]);
+    config(['nvl-tenancy.enabled' => false]);
     app()->forgetScopedInstances();
     $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name']);
     $ownership = app(TranslationOwnership::class);
@@ -564,7 +564,7 @@ it('derives inherited child ownership from persisted parents despite forged in-m
 
 it('keys grouped translations by persisted partition and logical identity', function (): void {
     $s = TenantTranslationScenario::install();
-    config(['translatable.locales' => ['en', 'fr']]);
+    config(['nvl-translatable.locales' => ['en', 'fr']]);
     $first = $s->entry($s::A, 'same', 'en', 'A');
     $second = $s->entry($s::A, 'same', 'fr', 'A fr');
     $foreign = $s->entry($s::B, 'same', 'en', 'B');
@@ -584,7 +584,7 @@ it('probes undeclared storage on its actual connection after the default changes
     $article = $s->article($s::A, 'same', []);
     $canonical = $article->getConnection()->getName();
     $article->setConnection($canonical);
-    config(['tenancy.enabled' => false, 'database.connections.legacy' => ['driver' => 'sqlite', 'database' => ':memory:']]);
+    config(['nvl-tenancy.enabled' => false, 'database.connections.legacy' => ['driver' => 'sqlite', 'database' => ':memory:']]);
     app('db')->setDefaultConnection('legacy');
     app()->forgetScopedInstances();
     $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name']);
@@ -750,7 +750,7 @@ it('rejects retained native related reads in another context without resetting s
 
 it('applies each fallback policy only to A rows', function (TranslationFallbackPolicy $policy, string $storedLocale, ?string $expected): void {
     $s = TenantTranslationScenario::install();
-    config(['translatable.locales' => ['en', 'bg', 'fr'], 'translatable.fallback.policy' => $policy->value]);
+    config(['nvl-translatable.locales' => ['en', 'bg', 'fr'], 'nvl-translatable.fallback.policy' => $policy->value]);
     $entry = $s->entry($s::A, 'same', $storedLocale, 'A fallback');
     $s->entry($s::B, 'same', 'bg', 'B requested');
     $article = $s->article($s::A, 'same', [$storedLocale => ['name' => 'A fallback']]);
@@ -992,7 +992,7 @@ it('independently admits declared child storage for query and loaded reads', fun
 
 it('admits actual related storage independently of an unadopted legacy owner connection', function (bool $loaded): void {
     TenantTranslationScenario::install();
-    config(['tenancy.enabled' => false, 'database.connections.legacy' => ['driver' => 'sqlite', 'database' => ':memory:']]);
+    config(['nvl-tenancy.enabled' => false, 'database.connections.legacy' => ['driver' => 'sqlite', 'database' => ':memory:']]);
     app()->forgetScopedInstances();
     $owner = new class extends TestTranslatableModel
     {

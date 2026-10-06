@@ -108,7 +108,7 @@ final readonly class TranslationPayloadValidator
      */
     private function positiveLimit(string $key, int $default): int
     {
-        $value = $this->config->get("translatable.limits.{$key}", $default);
+        $value = $this->config->get("nvl-translatable.limits.{$key}", $default);
 
         if (! is_int($value) || $value < 1) {
             throw new TranslatableException(

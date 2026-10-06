@@ -784,7 +784,7 @@ trait SelfTranslatable
      */
     private function translationTransactionAttempts(): int
     {
-        $attempts = Config::get('translatable.transactions.attempts', 3);
+        $attempts = Config::get('nvl-translatable.transactions.attempts', 3);
 
         if (! is_int($attempts) || $attempts < 1) {
             throw new TranslatableException(

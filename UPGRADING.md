@@ -83,7 +83,7 @@ middleware, limit, or transaction-attempt settings now fail explicitly.
 Correct these values before upgrading rather than relying on previous silent
 filtering or defaults.
 
-Model-specific `locales` may now only narrow `translatable.locales`. Add every
+Model-specific `locales` may now only narrow `nvl-translatable.locales`. Add every
 locale to the global catalog before selecting it in a model definition.
 
 ## Upgrading to 1.0
@@ -109,17 +109,15 @@ the final database against each declaration.
 
 ## Shared owner registry compatibility
 
-Move model identity declarations to `nvl-core.owners` and reference the alias from `translatable` capability configuration as described in the [README](README.md#shared-owner-identity). Preserve package contracts, resolvers/handlers, visibility scopes, and mutation authorization. Core does not grant package capabilities. Conflicting aliases or multiple canonical aliases for one model fail before use.
+Declare owner classes in `nvl-core.owners`, for example `'owners' => [Article::class]`, and reference the same model class from each package capability. Laravel's `getMorphClass()` is the stored owner identity: it returns the host-authored morph alias or the FQCN when no map exists. Core declarations and package allowlists do not add or enforce a host morph map and do not grant authorization.
 
-Legacy class inputs remain accepted for one major cycle and are reported through Core diagnostics. Existing Content, Taxonomy, and Metafields mappings keep their established aliases. Legacy SEO, Media, Comments, Templates, Pages, and Translatable class-backed behavior does not automatically create a new morph alias. Existing host morph mappings are respected.
-
-Adding a canonical Core alias changes Laravel's write-time morph type for that model. Before adding it to an existing class-backed deployment, explicitly convert the known package-owned morph columns and reconcile every other affected host relationship. Keep unrelated rows and host-owned morph tables unchanged. This release performs no automatic owner-data conversion and does not ship `nvl:owners:upgrade`. Preserve existing aliases when no conversion is required, rebuild configuration caches, and restart workers after the cutover.
+Legacy alias references remain read compatibility during major 5 and are removed in major 6. A legacy configured alias must agree with the model's current `getMorphClass()`; mismatches are diagnostics and require a host decision. Doctor can inspect declared package owner columns for stored-versus-current identities without rewriting them. If the host introduces or changes its morph map, review and convert only the affected stored columns and reconcile host relationships before cutover. No automatic owner-data conversion or `nvl:owners:upgrade` is provided. Rebuild configuration caches and restart workers after the coordinated change.
 
 ## Shared locale catalog cutover
 
 Use `Nvl\Support\Contracts\LocaleCatalog` in package-facing locale consumers. Existing explicit published Translatable catalogs remain authoritative. New null catalog defaults derive from Core/application defaults; hosts that require a different content catalog must configure it explicitly or bind the contract. Supported values and stored regional normalization retain their existing representation.
 
-Remove `primitives.locales.supported` after moving it to the selected catalog. It is deprecated for one major cycle and cannot override the Translatable adapter. Doctor reports conflicting catalogs without changing data. Validate resource narrowing and resource-specific fallbacks; excluded global fallback locales no longer invalidate a narrowed resource. Preserve exact-only policies and meaningful empty translated values.
+Remove `nvl-primitives.locales.supported` after moving it to the selected catalog. It is deprecated for one major cycle and cannot override the Translatable adapter. Doctor reports conflicting catalogs without changing data. Validate resource narrowing and resource-specific fallbacks; excluded global fallback locales no longer invalidate a narrowed resource. Preserve exact-only policies and meaningful empty translated values.
 
 Rebuild configuration caches and restart workers after catalog changes. Establish and clear scoped `ContentLocale` at each request/job boundary; an explicitly selected content locale remains independent of the UI locale. No automatic locale-row rewrite is included.
 

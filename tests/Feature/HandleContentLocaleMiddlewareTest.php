@@ -12,8 +12,8 @@ use Nvl\Translatable\Services\ContentLocale;
 use Symfony\Component\HttpFoundation\Response;
 
 beforeEach(function (): void {
-    config()->set('translatable.locales', ['en', 'bg']);
-    config()->set('translatable.fallback_locales', ['en']);
+    config()->set('nvl-translatable.locales', ['en', 'bg']);
+    config()->set('nvl-translatable.fallback_locales', ['en']);
     app(ContentLocale::class)->reset();
 });
 

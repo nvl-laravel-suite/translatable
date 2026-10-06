@@ -20,9 +20,9 @@ abstract class TestCase extends Orchestra
     protected function defineEnvironment($app): void
     {
         $app['config']->set([
-            'translatable.locales' => ['en', 'bg'],
-            'translatable.default_locale' => 'en',
-            'translatable.fallback_locales' => ['en'],
+            'nvl-translatable.locales' => ['en', 'bg'],
+            'nvl-translatable.default_locale' => 'en',
+            'nvl-translatable.fallback_locales' => ['en'],
         ]);
     }
 

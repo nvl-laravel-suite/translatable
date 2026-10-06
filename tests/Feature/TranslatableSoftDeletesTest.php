@@ -16,8 +16,8 @@ use Nvl\Translatable\Tests\Support\TestSoftDeletingSelfTranslatableModel;
 use Nvl\Translatable\TranslationResourceQuery;
 
 beforeEach(function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
-    config()->set('translatable.fallback_locales', ['en']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.fallback_locales', ['en']);
 
     Schema::dropIfExists('test_soft_deleting_self_translatable_models');
     Schema::create('test_soft_deleting_self_translatable_models', function (Blueprint $table): void {

@@ -33,7 +33,7 @@ test('configured resources fail explicitly for every malformed serializable opti
     mixed $resources,
     string $message,
 ): void {
-    config()->set('translatable.resources', $resources);
+    config()->set('nvl-translatable.resources', $resources);
 
     expect(fn () => (new TranslatableServiceProvider(app()))->boot(
         new TranslationResourceRegistry(app(OwnerRegistry::class)),
@@ -83,8 +83,8 @@ test('configured resources fail explicitly for every malformed serializable opti
 ]);
 
 test('configured resources register the complete cache-safe metadata contract', function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
-    config()->set('translatable.resources', [
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.resources', [
         'consumer.articles' => [
             'model' => TestTranslatableModel::class,
             'label' => 'Consumer articles',
@@ -116,8 +116,8 @@ test('configured resources register the complete cache-safe metadata contract', 
 
 test('consumer commands support human and machine readable resource workflows', function (): void {
     config()->set([
-        'translatable.locales' => ['en', 'bg', 'en-GB'],
-        'translatable.fallback_locales' => ['en'],
+        'nvl-translatable.locales' => ['en', 'bg', 'en-GB'],
+        'nvl-translatable.fallback_locales' => ['en'],
     ]);
     Schema::dropIfExists('test_translatable_models_i18n');
     Schema::dropIfExists('test_translatable_models');
@@ -179,7 +179,7 @@ test('doctor text output is actionable for healthy and invalid consumers', funct
         ->expectsOutputToContain('Translation diagnostics passed')
         ->assertSuccessful();
 
-    config()->set('translatable.default_locale', 'fr');
+    config()->set('nvl-translatable.default_locale', 'fr');
 
     $this->artisan('nvl:translatable:doctor')
         ->expectsOutputToContain('translatable.default_locale')
@@ -189,9 +189,9 @@ test('doctor text output is actionable for healthy and invalid consumers', funct
 
 test('legacy option and locale helpers preserve the canonical consumer contract', function (): void {
     config()->set([
-        'translatable.locales' => ['en', 'bg', 'en-GB'],
-        'translatable.default_locale' => 'en',
-        'translatable.fallback_locales' => ['en'],
+        'nvl-translatable.locales' => ['en', 'bg', 'en-GB'],
+        'nvl-translatable.default_locale' => 'en',
+        'nvl-translatable.fallback_locales' => ['en'],
     ]);
     $related = new TranslatableOptions(
         translationModel: TestTranslatableModelTranslation::class,
@@ -240,8 +240,8 @@ test('legacy option and locale helpers preserve the canonical consumer contract'
 
 test('related and self consumers can compose every public query and locale helper', function (): void {
     config()->set([
-        'translatable.locales' => ['en', 'bg', 'en-GB'],
-        'translatable.fallback_locales' => ['en'],
+        'nvl-translatable.locales' => ['en', 'bg', 'en-GB'],
+        'nvl-translatable.fallback_locales' => ['en'],
     ]);
     Schema::dropIfExists('test_translatable_models_i18n');
     Schema::dropIfExists('test_translatable_models');
@@ -319,19 +319,19 @@ test('related and self consumers can compose every public query and locale helpe
 test('locale registry rejects malformed catalogs and builds deterministic regional chains', function (): void {
     $registry = app(LocaleRegistry::class);
 
-    config()->set('translatable.locales', []);
+    config()->set('nvl-translatable.locales', []);
     expect(fn () => $registry->supported())->toThrow(TranslatableException::class, 'at least one locale');
 
-    config()->set('translatable.locales', ['en', 42]);
+    config()->set('nvl-translatable.locales', ['en', 42]);
     expect(fn () => $registry->supported())->toThrow(TranslatableException::class, 'must be a string');
 
-    config()->set('translatable.locales', ['en', 'EN']);
+    config()->set('nvl-translatable.locales', ['en', 'EN']);
     expect(fn () => $registry->supported())->toThrow(TranslatableException::class, 'Duplicate normalized');
 
     config()->set([
-        'translatable.locales' => ['en', 'en-GB', 'bg'],
-        'translatable.default_locale' => 'en',
-        'translatable.fallback_locales' => ['bg'],
+        'nvl-translatable.locales' => ['en', 'en-GB', 'bg'],
+        'nvl-translatable.default_locale' => 'en',
+        'nvl-translatable.fallback_locales' => ['bg'],
     ]);
     expect($registry->supported())->toBe(['en', 'en-GB', 'bg'])
         ->and($registry->fallbacks())->toBe(['bg'])
@@ -340,22 +340,22 @@ test('locale registry rejects malformed catalogs and builds deterministic region
         ->and($registry->supports('bad locale'))->toBeFalse()
         ->and($registry->chain('en-GB', ['bg']))->toBe(['en-GB', 'en', 'bg']);
 
-    config()->set('translatable.fallback_locales', 'bg');
+    config()->set('nvl-translatable.fallback_locales', 'bg');
     expect(fn () => $registry->fallbacks())->toThrow(TranslatableException::class, 'must be an array');
 
-    config()->set('translatable.fallback_locales', [42]);
+    config()->set('nvl-translatable.fallback_locales', [42]);
     expect(fn () => $registry->fallbacks())->toThrow(TranslatableException::class, 'must be a string');
 
-    config()->set('translatable.fallback_locales', ['bg', 'BG']);
+    config()->set('nvl-translatable.fallback_locales', ['bg', 'BG']);
     expect(fn () => $registry->fallbacks())->toThrow(TranslatableException::class, 'Duplicate normalized');
 
     config()->set([
-        'translatable.fallback_locales' => [],
-        'translatable.default_locale' => 42,
+        'nvl-translatable.fallback_locales' => [],
+        'nvl-translatable.default_locale' => 42,
     ]);
     expect(fn () => $registry->default())->toThrow(TranslatableException::class, 'must be a string');
 
-    config()->set('translatable.default_locale', 'en');
+    config()->set('nvl-translatable.default_locale', 'en');
     expect(fn () => $registry->assertSupported('fr'))->toThrow(TranslatableException::class, 'not supported')
         ->and(fn () => $registry->chain('en', [42]))
         ->toThrow(TranslatableException::class, 'additional translation fallback locale');
@@ -363,11 +363,11 @@ test('locale registry rejects malformed catalogs and builds deterministic region
 
 test('payload validation rejects every unsafe consumer shape before persistence', function (): void {
     config()->set([
-        'translatable.locales' => ['en', 'bg'],
-        'translatable.limits.mutation_locales' => 1,
-        'translatable.limits.mutation_fields' => 1,
-        'translatable.limits.mutation_value_bytes' => 30,
-        'translatable.limits.mutation_depth' => 4,
+        'nvl-translatable.locales' => ['en', 'bg'],
+        'nvl-translatable.limits.mutation_locales' => 1,
+        'nvl-translatable.limits.mutation_fields' => 1,
+        'nvl-translatable.limits.mutation_value_bytes' => 30,
+        'nvl-translatable.limits.mutation_depth' => 4,
     ]);
     $validator = app(TranslationPayloadValidator::class);
     $definition = new RelatedTranslationDefinition(
@@ -403,7 +403,7 @@ test('payload validation rejects every unsafe consumer shape before persistence'
         }
     }
 
-    config()->set('translatable.limits.mutation_fields', 0);
+    config()->set('nvl-translatable.limits.mutation_fields', 0);
     expect(fn () => $validator->validate($definition, []))
         ->toThrow(TranslatableException::class, 'positive integer');
 });
@@ -412,7 +412,7 @@ test('resource definitions reject unsafe public metadata and expose authorizatio
     Closure $factory,
     string $message,
 ): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
 
     expect($factory)->toThrow(TranslationResourceException::class, $message);
 })->with([
@@ -463,7 +463,7 @@ test('resource definitions reject unsafe public metadata and expose authorizatio
 ]);
 
 test('resource authorization and default metadata remain transport neutral', function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
     $resource = new TranslationResourceDefinition(
         key: 'consumer.articles',
         label: 'Articles',
@@ -488,39 +488,39 @@ test('resource authorization and default metadata remain transport neutral', fun
 test('doctor reports malformed global configuration without throwing', function (): void {
     $doctor = app(TranslationDoctor::class);
     $invalidConfigurations = [
-        ['translatable.locales' => []],
-        ['translatable.locales' => ['en', 42]],
-        ['translatable.locales' => ['en', 'bad locale']],
-        ['translatable.locales' => ['en', 'EN']],
-        ['translatable.default_locale' => 'fr'],
-        ['translatable.fallback_locales' => 'en'],
-        ['translatable.fallback_locales' => ['fr']],
-        ['translatable.fallback_locales' => ['en', 'EN']],
-        ['translatable.fallback.policy' => 'random'],
-        ['translatable.fallback.on_null' => 'yes'],
-        ['translatable.limits.mutation_fields' => 0],
-        ['translatable.middleware.query_parameter' => ''],
-        ['translatable.middleware.cookie_minutes' => 0],
+        ['nvl-translatable.locales' => []],
+        ['nvl-translatable.locales' => ['en', 42]],
+        ['nvl-translatable.locales' => ['en', 'bad locale']],
+        ['nvl-translatable.locales' => ['en', 'EN']],
+        ['nvl-translatable.default_locale' => 'fr'],
+        ['nvl-translatable.fallback_locales' => 'en'],
+        ['nvl-translatable.fallback_locales' => ['fr']],
+        ['nvl-translatable.fallback_locales' => ['en', 'EN']],
+        ['nvl-translatable.fallback.policy' => 'random'],
+        ['nvl-translatable.fallback.on_null' => 'yes'],
+        ['nvl-translatable.limits.mutation_fields' => 0],
+        ['nvl-translatable.middleware.query_parameter' => ''],
+        ['nvl-translatable.middleware.cookie_minutes' => 0],
     ];
 
     foreach ($invalidConfigurations as $configuration) {
-        config()->set('translatable', require __DIR__.'/../../config/translatable.php');
+        config()->set('nvl-translatable', require __DIR__.'/../../config/nvl-translatable.php');
         config()->set($configuration);
 
         expect($doctor->inspect()->isHealthy())->toBeFalse();
     }
 
-    config()->set('translatable.locales', 'en');
-    config()->set('translatable.labels', 'English');
+    config()->set('nvl-translatable.locales', 'en');
+    config()->set('nvl-translatable.labels', 'English');
 
     expect($doctor->inspect()->warnings)->toBe([]);
 });
 
 test('doctor gives exact migration guidance for broken related schemas', function (): void {
     config()->set([
-        'translatable.locales' => ['en', 'bg', 'en-GB'],
-        'translatable.default_locale' => 'en',
-        'translatable.fallback_locales' => ['en'],
+        'nvl-translatable.locales' => ['en', 'bg', 'en-GB'],
+        'nvl-translatable.default_locale' => 'en',
+        'nvl-translatable.fallback_locales' => ['en'],
     ]);
     Schema::dropIfExists('test_translatable_models_i18n');
     Schema::dropIfExists('test_translatable_models');

@@ -98,7 +98,7 @@ abstract readonly class TranslationDefinition
         }
 
         $configured = Config::get(
-            'translatable.fallback.policy',
+            'nvl-translatable.fallback.policy',
             TranslationFallbackPolicy::Configured->value,
         );
 
@@ -119,7 +119,7 @@ abstract readonly class TranslationDefinition
             return $this->fallbackOnNull;
         }
 
-        $configured = Config::get('translatable.fallback.on_null', true);
+        $configured = Config::get('nvl-translatable.fallback.on_null', true);
 
         if (! is_bool($configured)) {
             throw new TranslatableException('The translatable.fallback.on_null value must be boolean.');

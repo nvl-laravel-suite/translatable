@@ -30,8 +30,8 @@ use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 use Nvl\Translatable\TranslationResourceQuery;
 
 beforeEach(function (): void {
-    config()->set('translatable.locales', ['en', 'bg', 'en-GB']);
-    config()->set('translatable.fallback_locales', ['en']);
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    config()->set('nvl-translatable.fallback_locales', ['en']);
 
     Schema::dropIfExists('test_translatable_models_i18n');
     Schema::dropIfExists('test_translatable_models');

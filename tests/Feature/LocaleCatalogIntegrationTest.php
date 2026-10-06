@@ -16,27 +16,27 @@ use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
 
 it('exposes the configured translation catalog through the Core contract', function (): void {
     config([
-        'translatable.locales' => ['en', 'zh', 'zh-Hant', 'zh-Hant-TW', 'bg'],
-        'translatable.default_locale' => 'bg',
-        'translatable.fallback_locales' => ['en'],
-        'primitives.locales.supported' => ['fr'],
+        'nvl-translatable.locales' => ['en', 'zh', 'zh-Hant', 'zh-Hant-TW', 'bg'],
+        'nvl-translatable.default_locale' => 'bg',
+        'nvl-translatable.fallback_locales' => ['en'],
+        'nvl-primitives.locales.supported' => ['fr'],
     ]);
     $catalog = app(LocaleCatalog::class);
 
     expect($catalog->supported())->toBe(app(LocaleRegistry::class)->supported())
         ->and($catalog->chain('zh_hant_tw'))->toBe(['zh-Hant-TW', 'zh-Hant', 'zh', 'en', 'bg'])
         ->and((new LocaleCatalogDiagnostics(app('config'), $catalog))->inspect()['errors'])
-        ->toContain('primitives.locales.supported conflicts with the selected LocaleCatalog.');
+        ->toContain('nvl-primitives.locales.supported conflicts with the selected LocaleCatalog.');
 });
 
 it('derives new translation defaults from the host application without invented locales', function (): void {
     config([
         'app.locale' => 'de_DE',
         'app.fallback_locale' => 'fr',
-        'translatable.locales' => null,
-        'translatable.default_locale' => null,
-        'translatable.fallback_locales' => null,
-        'primitives.locales.supported' => ['en', 'bg'],
+        'nvl-translatable.locales' => null,
+        'nvl-translatable.default_locale' => null,
+        'nvl-translatable.fallback_locales' => null,
+        'nvl-primitives.locales.supported' => ['en', 'bg'],
     ]);
 
     expect(app(LocaleCatalog::class)->supported())->toBe(['de-DE', 'fr'])
@@ -46,7 +46,7 @@ it('derives new translation defaults from the host application without invented 
 
 it('keeps an explicitly bound host catalog across either locale provider order', function (): void {
     $host = new LocaleRegistryCatalog(new LocaleRegistry(new Repository([
-        'translatable' => ['locales' => ['fr'], 'default_locale' => 'fr', 'fallback_locales' => []],
+        'nvl-translatable' => ['locales' => ['fr'], 'default_locale' => 'fr', 'fallback_locales' => []],
     ])));
     app()->instance(LocaleCatalog::class, $host);
 
@@ -60,7 +60,7 @@ it('selects Translatable after either provider order and replaces an already res
     $application = new Application;
     $application->instance('config', new Repository([
         'app' => ['locale' => 'en', 'fallback_locale' => 'en'],
-        'translatable' => ['locales' => ['fr'], 'default_locale' => 'fr', 'fallback_locales' => []],
+        'nvl-translatable' => ['locales' => ['fr'], 'default_locale' => 'fr', 'fallback_locales' => []],
     ]));
 
     if ($resolveCoreFirst) {
@@ -76,9 +76,9 @@ it('selects Translatable after either provider order and replaces an already res
 
 it('respects resource narrowing without requiring excluded global fallback locales', function (): void {
     config([
-        'translatable.locales' => ['en', 'bg', 'en-GB'],
-        'translatable.default_locale' => 'en',
-        'translatable.fallback_locales' => ['en'],
+        'nvl-translatable.locales' => ['en', 'bg', 'en-GB'],
+        'nvl-translatable.default_locale' => 'en',
+        'nvl-translatable.fallback_locales' => ['en'],
     ]);
     $definition = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
@@ -91,7 +91,7 @@ it('respects resource narrowing without requiring excluded global fallback local
 });
 
 it('keeps explicit content locale distinct from UI locale and isolates scoped instances', function (): void {
-    config(['translatable.locales' => ['en', 'bg'], 'translatable.default_locale' => 'en']);
+    config(['nvl-translatable.locales' => ['en', 'bg'], 'nvl-translatable.default_locale' => 'en']);
     app()->setLocale('en');
     $first = app(ContentLocale::class);
     $first->set('bg');
