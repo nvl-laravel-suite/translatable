@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Tests\Fixtures;
 
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
 use Nvl\Tenancy\Contracts\PlatformAccess;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
-use Nvl\Tenancy\ValueObjects\PlatformOperation;
 
 /** Authorizes only the fixture's adoption operation. */
 final readonly class TenantTranslationFixturePlatformAccess implements PlatformAccess

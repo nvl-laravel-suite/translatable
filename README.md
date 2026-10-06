@@ -783,3 +783,41 @@ See [UPGRADING.md](UPGRADING.md) for declaration migration and
 ## License
 
 Released under the [MIT License](LICENSE).
+
+## Shared owner identity
+
+Declare a model once in `config/nvl-core.php`:
+
+```php
+'owners' => ['article' => Article::class],
+```
+
+Enable this package capability separately in `config/translatable.php`:
+
+```php
+'resources' => [
+    'articles.editor' => [
+        'model' => 'article',
+        'label' => 'Article translations',
+        'display_columns' => ['slug'],
+    ],
+],
+```
+
+Resource keys remain independent of owner aliases. Preserve search/display columns, query scopes, resource authorization, and the model translation mutation policy. Core registration does not add the model to this package's allowlist.
+
+Existing package class/resolver/handler registrations remain accepted for one major cycle. Run `php artisan nvl:doctor --strict --format=json` to inspect compatibility diagnostics. See [UPGRADING.md](UPGRADING.md) before changing a persisted morph type.
+
+## Shared content locale catalog
+
+`LocaleRegistry` remains the validator for Translatable configuration. `LocaleRegistryCatalog` adapts it to Core's `Nvl\Support\Contracts\LocaleCatalog`, and package runtime consumers depend on that contract. Translatable selects its adapter across provider discovery order changes while preserving a host-bound catalog.
+
+Explicit `translatable.locales`, `default_locale`, and `fallback_locales` continue to own the installed content catalog. Fresh null defaults inherit Core's explicit content catalog or the distinct valid application locale and fallback; they do not add English or Bulgarian automatically. `ContentLocale` remains scoped and an explicitly selected content locale does not change Laravel's UI locale. Keep setting and clearing it at request/job boundaries.
+
+Definitions may narrow the global catalog. Explicit resource fallback locales must be supported by that resource; global fallbacks excluded by resource narrowing are skipped. Exact-only reads remain exact, any-available fallback remains explicit and deterministic, and empty translated strings do not become missing values.
+
+Run `php artisan nvl:doctor` or `php artisan nvl:translatable:doctor` to find deprecated `primitives.locales` configuration and conflicting locale catalogs. Neither command changes stored locale values.
+
+## Shared consumer diagnostics
+
+Run `php artisan nvl:doctor --strict --format=json` to combine the read-only checks from loaded NVL package providers. Errors fail the gate, and strict mode also fails warnings. This package's existing Doctor command remains available and uses the same package-owned inspection service.

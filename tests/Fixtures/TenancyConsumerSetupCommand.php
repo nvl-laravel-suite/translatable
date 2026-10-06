@@ -9,14 +9,14 @@ use Illuminate\Contracts\Foundation\MaintenanceMode;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
-use Nvl\Tenancy\Contracts\TenantContext;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\Contracts\TenantContext;
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
+use Nvl\Support\Tenancy\ValueObjects\TenantId;
+use Nvl\Support\Tenancy\ValueObjects\TenantJobEnvelope;
 use Nvl\Tenancy\Services\TenantAdoptionCoordinator;
 use Nvl\Tenancy\Services\TenantBoundary;
 use Nvl\Tenancy\Services\TenantRunner;
-use Nvl\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Tenancy\ValueObjects\TenantId;
-use Nvl\Tenancy\ValueObjects\TenantJobEnvelope;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
 use Nvl\Translatable\Tests\Support\TenantTranslationProbeJob;
@@ -80,7 +80,7 @@ final class TenancyConsumerSetupCommand extends Command
         if (! is_string($root) || $root === '') {
             throw new RuntimeException('The fixture requires NVL_TEST_SUITE_ROOT.');
         }
-        $migration = require $root.'/packages/nvl/tenancy/database/migrations/tenancy/2026_09_16_000001_create_tenancy_core_tables.php';
+        $migration = require $root.'/packages/nvl/tenancy/database/migrations/tenancy/2026_09_16_000001_nvl_tenancy_create_tenancy_core_tables.php';
         if (! is_object($migration) || ! is_callable([$migration, 'up'])) {
             throw new RuntimeException('The tenancy core migration is invalid.');
         }

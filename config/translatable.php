@@ -9,13 +9,15 @@ return [
     |--------------------------------------------------------------------------
     |
     | Models may narrow this catalog, but cannot add locales outside it.
-    | Locale identifiers are normalized to BCP 47-style values.
+    | Locale identifiers are normalized to BCP 47-style values. Null catalog
+    | defaults derive from app.locale and app.fallback_locale. Published
+    | explicit catalogs continue to take precedence over these defaults.
     */
-    'locales' => ['en', 'bg'],
+    'locales' => null,
 
-    'default_locale' => 'en',
+    'default_locale' => null,
 
-    'fallback_locales' => ['en'],
+    'fallback_locales' => null,
 
     /*
     |--------------------------------------------------------------------------

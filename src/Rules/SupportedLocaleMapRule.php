@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Rules;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Translation\PotentiallyTranslatedString;
+use Nvl\Support\Facades\Locales;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Support\LocaleCode;
@@ -78,9 +79,9 @@ final readonly class SupportedLocaleMapRule implements ValidationRule
     private function normalizedSupportedLocales(): array
     {
         $configured = $this->supportedLocales
-            ?? config('translatable.locales', ['en']);
+            ?? Locales::supported();
 
-        if (! is_array($configured) || $configured === []) {
+        if ($configured === []) {
             throw new TranslatableException(
                 'SupportedLocaleMapRule requires at least one configured locale.',
             );
@@ -89,13 +90,11 @@ final readonly class SupportedLocaleMapRule implements ValidationRule
         $locales = [];
 
         foreach ($configured as $locale) {
-            if (! is_string($locale)) {
-                throw new TranslatableException(
-                    'Every SupportedLocaleMapRule locale must be a string.',
-                );
-            }
-
             $normalized = (new LocaleCode($locale))->value;
+
+            if (! Locales::supports($normalized)) {
+                throw InvalidLocaleException::unsupported($normalized, Locales::supported());
+            }
 
             if (in_array($normalized, $locales, true)) {
                 throw new TranslatableException(

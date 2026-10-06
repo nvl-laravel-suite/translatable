@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;

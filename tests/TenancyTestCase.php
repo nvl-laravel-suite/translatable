@@ -6,10 +6,10 @@ namespace Nvl\Translatable\Tests;
 
 use Illuminate\Contracts\Foundation\MaintenanceMode;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
 use Nvl\Tenancy\Contracts\PlatformAccess;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Tenancy\Providers\TenancyServiceProvider;
-use Nvl\Tenancy\ValueObjects\PlatformOperation;
 use ReflectionClass;
 
 /** Boots explicit tenant fixtures without an ambient test transaction. */
@@ -20,6 +20,7 @@ abstract class TenancyTestCase extends TestCase
     /** Configure the test-only adoption authorization and maintenance lease. */
     protected function defineEnvironment($app): void
     {
+        parent::defineEnvironment($app);
         $app->instance(PlatformAccess::class, new class implements PlatformAccess
         {
             /** Admit only this fixture's named adoption operation. */

@@ -13,9 +13,10 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\Event;
 use LogicException;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
-use Nvl\Tenancy\Services\TenantOwnershipConfiguration;
-use Nvl\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Tenancy\Contracts\TenantOwnershipConfiguration;
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -42,7 +43,7 @@ final readonly class TranslationResourceGatherer
      */
     public function __construct(
         private TranslationResourceRegistry $resources,
-        private LocaleRegistry $locales,
+        private LocaleCatalog $locales,
         private TranslationResourceAuthorization $authorization,
         private TranslationResourceVersioner $versioner,
         private TranslationResourceLocator $locator,

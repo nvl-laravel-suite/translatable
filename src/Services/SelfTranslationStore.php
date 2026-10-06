@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\SelfTranslationDefinition;

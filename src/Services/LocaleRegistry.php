@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Services;
 
 use Illuminate\Contracts\Config\Repository;
+use Nvl\Support\Locales\ApplicationLocaleCatalog;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Support\LocaleCode;
@@ -28,7 +29,8 @@ final readonly class LocaleRegistry
      */
     public function supported(): array
     {
-        $configured = $this->config->get('translatable.locales', ['en']);
+        $configured = $this->config->get('translatable.locales')
+            ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->supported();
 
         if (! is_array($configured) || $configured === []) {
             throw new TranslatableException(
@@ -41,7 +43,7 @@ final readonly class LocaleRegistry
         foreach ($configured as $locale) {
             if (! is_string($locale)) {
                 throw new TranslatableException(
-                    'Every translatable.locales value must be a string.',
+                    'Every translation locale must be a string.',
                 );
             }
 
@@ -66,7 +68,8 @@ final readonly class LocaleRegistry
      */
     public function fallbacks(): array
     {
-        $configured = $this->config->get('translatable.fallback_locales', []);
+        $configured = $this->config->get('translatable.fallback_locales')
+            ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->fallbacks();
 
         if (! is_array($configured)) {
             throw new TranslatableException(
@@ -102,7 +105,8 @@ final readonly class LocaleRegistry
      */
     public function default(): string
     {
-        $configured = $this->config->get('translatable.default_locale', 'en');
+        $configured = $this->config->get('translatable.default_locale')
+            ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->default();
 
         if (! is_string($configured)) {
             throw new TranslatableException(

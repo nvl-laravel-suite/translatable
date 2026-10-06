@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Support;
 
-use Illuminate\Support\Str;
+use InvalidArgumentException;
+use Nvl\Support\Locales\LocaleCode as SharedLocaleCode;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 
 /**
@@ -21,9 +22,9 @@ final readonly class LocaleCode
      */
     public function __construct(string $locale)
     {
-        $normalized = self::normalize($locale);
-
-        if (! self::isValid($normalized)) {
+        try {
+            $normalized = (new SharedLocaleCode($locale))->value;
+        } catch (InvalidArgumentException) {
             throw InvalidLocaleException::malformed($locale);
         }
 
@@ -35,25 +36,7 @@ final readonly class LocaleCode
      */
     public static function normalize(string $locale): string
     {
-        $segments = explode('-', str_replace('_', '-', Str::of($locale)->trim()->toString()));
-
-        return collect($segments)
-            ->map(static function (string $segment, int $index): string {
-                if ($index === 0) {
-                    return Str::lower($segment);
-                }
-
-                if (mb_strlen($segment) === 2 || ctype_digit($segment)) {
-                    return Str::upper($segment);
-                }
-
-                if (mb_strlen($segment) === 4) {
-                    return Str::ucfirst(Str::lower($segment));
-                }
-
-                return Str::lower($segment);
-            })
-            ->implode('-');
+        return SharedLocaleCode::normalize($locale);
     }
 
     /**
@@ -61,8 +44,7 @@ final readonly class LocaleCode
      */
     public static function isValid(string $locale): bool
     {
-        return mb_strlen($locale) <= 35
-            && preg_match('/^[a-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/', $locale) === 1;
+        return SharedLocaleCode::isValid($locale);
     }
 
     /**

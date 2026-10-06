@@ -6,16 +6,16 @@ namespace Nvl\Translatable\Tests\Support;
 
 use Closure;
 use Illuminate\Contracts\Foundation\MaintenanceMode;
-use Nvl\Tenancy\Contracts\TenantDirectory;
-use Nvl\Tenancy\Enums\TenantResourceKind;
+use Nvl\Support\Tenancy\Contracts\TenantDirectory;
+use Nvl\Support\Tenancy\Enums\TenantResourceKind;
+use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
+use Nvl\Support\Tenancy\ValueObjects\TenantId;
+use Nvl\Support\Tenancy\ValueObjects\TenantResourceDefinition;
 use Nvl\Tenancy\Services\TenantAdoptionCoordinator;
 use Nvl\Tenancy\Services\TenantAdoptionRegistry;
 use Nvl\Tenancy\Services\TenantBoundary;
-use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Tenancy\Services\TenantRunner;
-use Nvl\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Tenancy\ValueObjects\TenantId;
-use Nvl\Tenancy\ValueObjects\TenantResourceDefinition;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Tests\Fixtures\TenantTranslationFixtureDirectory;
 
@@ -42,7 +42,7 @@ final class TenantTranslationScenario
         ]);
         if ($connection !== null
             && ! app('db')->connection($connection)->getSchemaBuilder()->hasTable('nvl_tenancy_operations')) {
-            $migration = require dirname(__DIR__, 3).'/tenancy/database/migrations/tenancy/2026_09_16_000001_create_tenancy_core_tables.php';
+            $migration = require dirname(__DIR__, 3).'/tenancy/database/migrations/tenancy/2026_09_16_000001_nvl_tenancy_create_tenancy_core_tables.php';
             $migration->up();
         }
         app()->instance(TenantDirectory::class, new TenantTranslationFixtureDirectory);

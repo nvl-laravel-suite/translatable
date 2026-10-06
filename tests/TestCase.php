@@ -16,6 +16,16 @@ use Orchestra\Testbench\TestCase as Orchestra;
  */
 abstract class TestCase extends Orchestra
 {
+    /** Retain the published catalog used by the package's established fixtures. */
+    protected function defineEnvironment($app): void
+    {
+        $app['config']->set([
+            'translatable.locales' => ['en', 'bg'],
+            'translatable.default_locale' => 'en',
+            'translatable.fallback_locales' => ['en'],
+        ]);
+    }
+
     /**
      * Prepare the isolated package database.
      */

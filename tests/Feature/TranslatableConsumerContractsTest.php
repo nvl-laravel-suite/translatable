@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Data\Services\TypeScriptSourceRegistry;
+use Nvl\Support\OwnerRegistry;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\Locale;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
@@ -35,7 +36,7 @@ test('configured resources fail explicitly for every malformed serializable opti
     config()->set('translatable.resources', $resources);
 
     expect(fn () => (new TranslatableServiceProvider(app()))->boot(
-        new TranslationResourceRegistry,
+        new TranslationResourceRegistry(app(OwnerRegistry::class)),
         app(TypeScriptSourceRegistry::class),
     ))->toThrow(TranslationResourceException::class, $message);
 })->with([
@@ -50,7 +51,7 @@ test('configured resources fail explicitly for every malformed serializable opti
     ], 'unknown options'],
     'missing model' => [[
         'tests.invalid' => ['label' => 'Invalid'],
-    ], 'existing model class'],
+    ], 'owner reference'],
     'order column' => [[
         'tests.invalid' => [
             'model' => TestTranslatableModel::class,
@@ -93,7 +94,7 @@ test('configured resources register the complete cache-safe metadata contract', 
             'maximum_page_size' => 25,
         ],
     ]);
-    $resources = new TranslationResourceRegistry;
+    $resources = new TranslationResourceRegistry(app(OwnerRegistry::class));
 
     (new TranslatableServiceProvider(app()))->boot(
         $resources,

@@ -7,14 +7,15 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Nvl\Tenancy\Enums\TenantResourceKind;
-use Nvl\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\OwnerRegistry;
+use Nvl\Support\Tenancy\Enums\TenantResourceKind;
+use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
+use Nvl\Support\Tenancy\ValueObjects\TenantResourceDefinition;
 use Nvl\Tenancy\Services\TenantBoundary;
 use Nvl\Tenancy\Services\TenantInstallationState;
-use Nvl\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Tenancy\Services\TenantRunner;
-use Nvl\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Tenancy\ValueObjects\TenantResourceDefinition;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationMutationData;
@@ -538,7 +539,7 @@ it('diagnoses a related child registered under the wrong inherited parent', func
 
 it('diagnoses related storage using a different actual connection with the same name', function (): void {
     TenantTranslationScenario::install();
-    $resources = new TranslationResourceRegistry;
+    $resources = new TranslationResourceRegistry(app(OwnerRegistry::class));
     $resources->register('test.same-name-articles', DoctorSameNameConnectionArticle::class, 'Same-name articles');
     app()->instance(TranslationResourceRegistry::class, $resources);
     $tenantResources = new TenantResourceRegistry;

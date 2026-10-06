@@ -6,6 +6,7 @@ namespace Nvl\Translatable;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Config;
+use Nvl\Support\Facades\Locales;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationStorageStrategy;
@@ -64,13 +65,7 @@ abstract readonly class TranslationDefinition
      */
     public function supportedLocales(): array
     {
-        $configured = Config::get('translatable.locales', ['en']);
-
-        if (! is_array($configured)) {
-            throw new TranslatableException('The translatable.locales configuration value must be an array.');
-        }
-
-        $globalLocales = $this->normalizeLocales(array_values($configured));
+        $globalLocales = Locales::supported();
 
         if ($globalLocales === []) {
             throw new TranslatableException('At least one supported translation locale must be configured.');
@@ -85,7 +80,7 @@ abstract readonly class TranslationDefinition
 
         if ($unsupported !== []) {
             throw new TranslatableException(
-                'Model locales must be a subset of translatable.locales: '
+                'Model locales must be a subset of the locale catalog: '
                 .implode(', ', $unsupported).'.',
             );
         }
@@ -175,26 +170,7 @@ abstract readonly class TranslationDefinition
             return [];
         }
 
-        $configuredFallbacks = Config::get('translatable.fallback_locales', []);
-        $defaultLocale = Config::get('translatable.default_locale');
-
-        if (! is_array($configuredFallbacks)) {
-            throw new TranslatableException(
-                'The translatable.fallback_locales configuration value must be an array.',
-            );
-        }
-
-        if (! is_string($defaultLocale)) {
-            throw new TranslatableException(
-                'The translatable.default_locale configuration value must be a string.',
-            );
-        }
-
-        $candidates = [
-            ...$this->fallbackLocales,
-            ...$this->normalizeLocales(array_values($configuredFallbacks)),
-            $defaultLocale,
-        ];
+        $candidates = $this->fallbackLocales;
         $fallbacks = [];
 
         foreach ($candidates as $candidate) {
@@ -205,7 +181,11 @@ abstract readonly class TranslationDefinition
             }
         }
 
-        return $fallbacks;
+        return $this->normalizeSupportedCandidates([
+            ...$fallbacks,
+            ...Locales::fallbacks(),
+            Locales::default(),
+        ]);
     }
 
     /**

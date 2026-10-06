@@ -8,6 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
+use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationMutationData;
@@ -16,7 +17,6 @@ use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
-use Nvl\Translatable\Services\LocaleRegistry;
 use Nvl\Translatable\Services\TranslationResourceAuthorization;
 use Nvl\Translatable\Services\TranslationResourceLocator;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
@@ -33,7 +33,7 @@ final readonly class SyncTranslationResourceAction
      */
     public function __construct(
         private TranslationResourceRegistry $resources,
-        private LocaleRegistry $locales,
+        private LocaleCatalog $locales,
         private TranslationWriter $writer,
         private TranslationResourceAuthorization $authorization,
         private TranslationResourceVersioner $versioner,

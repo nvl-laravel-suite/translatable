@@ -8,10 +8,10 @@ use Closure;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cookie;
+use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\ContentLocale;
-use Nvl\Translatable\Services\LocaleRegistry;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -24,7 +24,7 @@ final readonly class HandleContentLocale
      */
     public function __construct(
         private ContentLocale $contentLocale,
-        private LocaleRegistry $locales,
+        private LocaleCatalog $locales,
         private ContentLocalePreferenceResolver $preferences,
         private Repository $config,
     ) {}

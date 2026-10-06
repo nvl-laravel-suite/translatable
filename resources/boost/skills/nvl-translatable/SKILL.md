@@ -152,3 +152,15 @@ fallback by default; use `withTrashed()->locale(...)` to include them or
 - Preserve disabled compatibility and package independence; tenant support never creates an undeclared Auth or Suite dependency.
 - Use registered package-owned resources, adoption adapters, Actions, and lifecycle APIs. Never add a generic tenant delete-all path or raw cross-package cleanup.
 - Treat mapping/configuration hashes, interruption checkpoints, conservation evidence, worker context, tenant-leading queries, and standalone consumption as release contracts.
+
+## Shared owner identities
+
+- Declare canonical owner identity once in `nvl-core.owners`; reference its alias in `translatable` capability configuration.
+- Resource keys remain independent of owner aliases. Preserve search/display columns, query scopes, resource authorization, and the model translation mutation policy.
+- Keep the package allowlist and authorization independent of Core registration. Never authorize a model merely because Core knows it.
+- Accept legacy class/resolver/handler inputs during the documented one-major compatibility cycle. Report deprecated host identity inputs through `nvl:doctor`; preserve established write-time morph types.
+- Before introducing an alias for historical FQCN-backed data, explicitly convert reviewed package-owned columns and reconcile affected host relations. Never silently rewrite host morph tables or enable `enforceMorphMap()` globally.
+
+## Shared consumer diagnostics
+
+Run `php artisan nvl:doctor --strict --format=json` to combine checks from loaded NVL providers. Retain the package Doctor command for its detailed report; both paths reuse the package-owned inspection service.

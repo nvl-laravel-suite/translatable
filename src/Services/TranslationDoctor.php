@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Services;
 
+use Exception;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder;
-use Nvl\Tenancy\Enums\TenantResourceKind;
-use Nvl\Tenancy\Services\TenantInstallationState;
-use Nvl\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Locales\LocaleCatalogDiagnostics;
+use Nvl\Support\Tenancy\Contracts\TenantInstallationState;
+use Nvl\Support\Tenancy\Enums\TenantResourceKind;
+use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
@@ -37,6 +40,8 @@ final readonly class TranslationDoctor
         private TranslationOwnership $ownership,
         private TenantResourceRegistry $tenantResources,
         private TenantInstallationState $installation,
+        private LocaleCatalog $locales,
+        private LocaleCatalogDiagnostics $localeDiagnostics,
     ) {}
 
     /**
@@ -69,8 +74,9 @@ final readonly class TranslationDoctor
      */
     private function configurationErrors(): array
     {
-        $errors = [];
-        $configuredLocales = $this->config->get('translatable.locales');
+        $errors = $this->localeDiagnostics->inspect()['errors'];
+        $catalog = $this->catalogConfiguration();
+        $configuredLocales = $this->config->get('translatable.locales') ?? $catalog['locales'];
 
         if (! is_array($configuredLocales) || $configuredLocales === []) {
             $errors[] = 'translatable.locales must contain at least one locale.';
@@ -101,13 +107,13 @@ final readonly class TranslationDoctor
             $locales[] = $normalized;
         }
 
-        $default = $this->config->get('translatable.default_locale');
+        $default = $this->config->get('translatable.default_locale') ?? $catalog['default'];
 
         if (! is_string($default) || ! $this->containsLocale($locales, $default)) {
             $errors[] = 'translatable.default_locale must be one of the supported locales.';
         }
 
-        $fallbacks = $this->config->get('translatable.fallback_locales', []);
+        $fallbacks = $this->config->get('translatable.fallback_locales') ?? $catalog['fallbacks'];
 
         if (! is_array($fallbacks)) {
             $errors[] = 'translatable.fallback_locales must be an array.';
@@ -184,14 +190,14 @@ final readonly class TranslationDoctor
      */
     private function configurationWarnings(): array
     {
-        $configuredLocales = $this->config->get('translatable.locales', []);
+        $configuredLocales = $this->config->get('translatable.locales') ?? $this->catalogConfiguration()['locales'];
         $labels = $this->config->get('translatable.labels', []);
 
         if (! is_array($configuredLocales) || ! is_array($labels)) {
             return [];
         }
 
-        $warnings = [];
+        $warnings = $this->localeDiagnostics->inspect()['warnings'];
 
         foreach ($configuredLocales as $locale) {
             if (! is_string($locale)) {
@@ -214,6 +220,24 @@ final readonly class TranslationDoctor
         }
 
         return $warnings;
+    }
+
+    /**
+     * Read catalog defaults without interrupting diagnostics for malformed configuration.
+     *
+     * @return array{locales: list<string>, default: ?string, fallbacks: list<string>}
+     */
+    private function catalogConfiguration(): array
+    {
+        try {
+            return [
+                'locales' => $this->locales->supported(),
+                'default' => $this->locales->default(),
+                'fallbacks' => $this->locales->fallbacks(),
+            ];
+        } catch (Exception) {
+            return ['locales' => [], 'default' => null, 'fallbacks' => []];
+        }
     }
 
     /**
@@ -696,25 +720,7 @@ final readonly class TranslationDoctor
         TranslationDefinition $definition,
         array &$errors,
     ): void {
-        $configured = $this->config->get('translatable.locales', []);
-
-        if (! is_array($configured)) {
-            return;
-        }
-
-        $globalLocales = [];
-
-        foreach ($configured as $locale) {
-            if (! is_string($locale)) {
-                continue;
-            }
-
-            try {
-                $globalLocales[] = (new LocaleCode($locale))->value;
-            } catch (Throwable) {
-                continue;
-            }
-        }
+        $globalLocales = $this->locales->supported();
 
         $unsupported = array_values(array_diff(
             $definition->supportedLocales(),

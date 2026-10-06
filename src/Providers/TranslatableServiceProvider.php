@@ -6,8 +6,11 @@ namespace Nvl\Translatable\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Nvl\Data\Services\TypeScriptSourceRegistry;
+use Nvl\Support\Doctor\DoctorCheck;
+use Nvl\Support\Doctor\PackageDoctorContributor;
+use Nvl\Support\Providers\SupportServiceProvider;
+use Nvl\Support\Providers\TenantServiceProvider;
 use Nvl\Support\Traits\MergesPackageConfiguration;
-use Nvl\Tenancy\Providers\TenancyServiceProvider;
 use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Console\Commands\GatherTranslationResourcesCommand;
@@ -16,7 +19,6 @@ use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Services\ContentLocale;
-use Nvl\Translatable\Services\LocaleRegistry;
 use Nvl\Translatable\Services\NullContentLocalePreferenceResolver;
 use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\SelfTranslationStore;
@@ -44,13 +46,26 @@ final class TranslatableServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->register(TenancyServiceProvider::class);
+        $this->app->register(SupportServiceProvider::class);
+        PackageDoctorContributor::register($this->app, 'nvl/translatable', function (): array {
+            $report = $this->app->make(TranslationDoctor::class)->inspect();
+            $checks = [new DoctorCheck('resources.inspected', 'info', true, "Inspected {$report->checkedResources} translation resources.")];
+            foreach (['error' => $report->errors, 'warning' => $report->warnings] as $severity => $messages) {
+                foreach ($messages as $message) {
+                    $checks[] = new DoctorCheck('diagnostic.'.$severity.'.'.substr(hash('sha256', $message), 0, 16), $severity, false, $message);
+                }
+            }
+
+            return $checks;
+        });
+
+        $this->app->register(TenantServiceProvider::class);
         $this->mergePackageConfiguration(
             __DIR__.'/../../config/translatable.php',
             'translatable',
         );
 
-        $this->app->singleton(LocaleRegistry::class);
+        $this->app->register(TranslatableLocaleServiceProvider::class);
         $this->app->scoped(ContentLocale::class);
         $this->app->scoped(TranslationOwnership::class);
         $this->app->scoped(TranslationResolver::class);
@@ -144,9 +159,9 @@ final class TranslatableServiceProvider extends ServiceProvider
             $model = $definition['model'] ?? null;
             $label = $definition['label'] ?? null;
 
-            if (! is_string($model) || ! class_exists($model) || ! is_string($label)) {
+            if (! is_string($model) || ! is_string($label)) {
                 throw TranslationResourceException::invalid(
-                    "Configured translation resource [{$key}] requires an existing model class and string label.",
+                    "Configured translation resource [{$key}] requires an owner reference and string label.",
                 );
             }
 

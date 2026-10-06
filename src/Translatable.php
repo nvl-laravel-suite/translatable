@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\App;
-use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Context;
 use Nvl\Translatable\Relations\TranslationHasMany;
 use Nvl\Translatable\Relations\TranslationHasOne;
@@ -177,12 +176,10 @@ trait Translatable
         }
 
         $contextLocale = Context::get(ContentLocale::CONTEXT_KEY);
-        $configuredFallback = Config::get('app.fallback_locale', 'en');
         $candidates = [
             ...(is_string($contextLocale) ? [$contextLocale] : []),
             App::getLocale(),
             ...$options->configuredFallbackLocales(),
-            ...(is_string($configuredFallback) ? [$configuredFallback] : []),
             ...$options->supportedLocales(),
         ];
 

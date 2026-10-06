@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Tests\Fixtures;
 
-use Nvl\Tenancy\Contracts\TenantDirectory;
-use Nvl\Tenancy\Enums\TenantStatus;
-use Nvl\Tenancy\Exceptions\TenantNotFound;
-use Nvl\Tenancy\ValueObjects\TenantDescriptor;
-use Nvl\Tenancy\ValueObjects\TenantId;
+use Nvl\Support\Tenancy\Contracts\TenantDirectory;
+use Nvl\Support\Tenancy\Enums\TenantStatus;
+use Nvl\Support\Tenancy\Exceptions\TenantNotFound;
+use Nvl\Support\Tenancy\ValueObjects\TenantDescriptor;
+use Nvl\Support\Tenancy\ValueObjects\TenantId;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 
 /** Resolves the two active translation fixture tenants. */

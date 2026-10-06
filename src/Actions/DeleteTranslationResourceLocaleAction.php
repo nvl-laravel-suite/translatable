@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Actions;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Event;
+use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Translatable\Data\DeleteTranslationLocaleData;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationDeleteResultData;
@@ -14,7 +15,6 @@ use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
-use Nvl\Translatable\Services\LocaleRegistry;
 use Nvl\Translatable\Services\TranslationResourceAuthorization;
 use Nvl\Translatable\Services\TranslationResourceLocator;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
@@ -31,7 +31,7 @@ final readonly class DeleteTranslationResourceLocaleAction
      */
     public function __construct(
         private TranslationResourceRegistry $resources,
-        private LocaleRegistry $locales,
+        private LocaleCatalog $locales,
         private TranslationWriter $writer,
         private TranslationResourceAuthorization $authorization,
         private TranslationResourceVersioner $versioner,

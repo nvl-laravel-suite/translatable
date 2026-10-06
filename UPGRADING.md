@@ -106,3 +106,23 @@ Do not build schema generation around translation declarations. They do not
 contain SQL types, nullability, defaults, connection ownership, casts, or
 migration history. Keep schema changes explicit and use the doctor to verify
 the final database against each declaration.
+
+## Shared owner registry compatibility
+
+Move model identity declarations to `nvl-core.owners` and reference the alias from `translatable` capability configuration as described in the [README](README.md#shared-owner-identity). Preserve package contracts, resolvers/handlers, visibility scopes, and mutation authorization. Core does not grant package capabilities. Conflicting aliases or multiple canonical aliases for one model fail before use.
+
+Legacy class inputs remain accepted for one major cycle and are reported through Core diagnostics. Existing Content, Taxonomy, and Metafields mappings keep their established aliases. Legacy SEO, Media, Comments, Templates, Pages, and Translatable class-backed behavior does not automatically create a new morph alias. Existing host morph mappings are respected.
+
+Adding a canonical Core alias changes Laravel's write-time morph type for that model. Before adding it to an existing class-backed deployment, explicitly convert the known package-owned morph columns and reconcile every other affected host relationship. Keep unrelated rows and host-owned morph tables unchanged. This release performs no automatic owner-data conversion and does not ship `nvl:owners:upgrade`. Preserve existing aliases when no conversion is required, rebuild configuration caches, and restart workers after the cutover.
+
+## Shared locale catalog cutover
+
+Use `Nvl\Support\Contracts\LocaleCatalog` in package-facing locale consumers. Existing explicit published Translatable catalogs remain authoritative. New null catalog defaults derive from Core/application defaults; hosts that require a different content catalog must configure it explicitly or bind the contract. Supported values and stored regional normalization retain their existing representation.
+
+Remove `primitives.locales.supported` after moving it to the selected catalog. It is deprecated for one major cycle and cannot override the Translatable adapter. Doctor reports conflicting catalogs without changing data. Validate resource narrowing and resource-specific fallbacks; excluded global fallback locales no longer invalidate a narrowed resource. Preserve exact-only policies and meaningful empty translated values.
+
+Rebuild configuration caches and restart workers after catalog changes. Establish and clear scoped `ContentLocale` at each request/job boundary; an explicitly selected content locale remains independent of the UI locale. No automatic locale-row rewrite is included.
+
+## Shared Doctor integration
+
+The loaded package provider now contributes its existing inspection checks to Core's `nvl:doctor --strict --format=json`. The package command remains available. The shared gate fails errors and, in strict mode, warnings; no data upgrade is required for diagnostics.

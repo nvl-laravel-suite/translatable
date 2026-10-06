@@ -6,8 +6,8 @@ namespace Nvl\Translatable\Tests\Fixtures;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Redis;
+use Nvl\Support\Tenancy\ValueObjects\TenantId;
 use Nvl\Tenancy\Services\TenantRunner;
-use Nvl\Tenancy\ValueObjects\TenantId;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
 use RuntimeException;

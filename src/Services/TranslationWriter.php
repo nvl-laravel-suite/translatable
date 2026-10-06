@@ -6,6 +6,7 @@ namespace Nvl\Translatable\Services;
 
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -25,7 +26,7 @@ final readonly class TranslationWriter
      * Create the strategy-aware translation writer.
      */
     public function __construct(
-        private LocaleRegistry $locales,
+        private LocaleCatalog $locales,
         private RelatedTranslationStore $relatedStore,
         private SelfTranslationStore $selfStore,
         private TranslationPayloadValidator $payloadValidator,

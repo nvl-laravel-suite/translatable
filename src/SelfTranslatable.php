@@ -369,12 +369,10 @@ trait SelfTranslatable
         }
 
         $contextLocale = Context::get(ContentLocale::CONTEXT_KEY);
-        $configuredFallback = Config::get('app.fallback_locale');
         $candidates = [
             ...(is_string($contextLocale) ? [$contextLocale] : []),
             App::getLocale(),
             ...$definition->configuredFallbackLocales(),
-            ...(is_string($configuredFallback) ? [$configuredFallback] : []),
             ...$definition->supportedLocales(),
         ];
 

@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Services;
 use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Nvl\Support\OwnerRegistry;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
@@ -22,10 +23,13 @@ final class TranslationResourceRegistry
      */
     private array $resources = [];
 
+    /** Create the resource catalog against the shared identity registry. */
+    public function __construct(private readonly OwnerRegistry $identities) {}
+
     /**
      * Register one definition, allowing only identical idempotent registration.
      *
-     * @param  class-string  $modelClass
+     * @param  string  $modelClass  Shared owner alias or compatibility model class
      * @param  list<string>  $searchableColumns
      * @param  list<string>  $displayColumns
      * @param  (Closure(TranslationActorData, TranslationResourceAbility, ?Model): bool)|null  $authorization
@@ -45,7 +49,7 @@ final class TranslationResourceRegistry
         return $this->add(new TranslationResourceDefinition(
             key: $key,
             label: $label,
-            modelClass: $modelClass,
+            modelClass: $this->identities->reference($modelClass, "translatable.resources.{$key}.model"),
             searchableColumns: $searchableColumns,
             displayColumns: $displayColumns,
             orderColumn: $orderColumn,

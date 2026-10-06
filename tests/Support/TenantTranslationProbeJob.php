@@ -9,9 +9,9 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
-use Nvl\Tenancy\Contracts\TenantContext;
-use Nvl\Tenancy\Contracts\TenantQueuedJob;
-use Nvl\Tenancy\ValueObjects\TenantJobEnvelope;
+use Nvl\Support\Tenancy\Contracts\TenantContext;
+use Nvl\Support\Tenancy\Contracts\TenantQueuedJob;
+use Nvl\Support\Tenancy\ValueObjects\TenantJobEnvelope;
 use Nvl\Translatable\Services\ContentLocale;
 use RuntimeException;
 

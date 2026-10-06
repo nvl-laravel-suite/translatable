@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Services;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Context;
+use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Translatable\Enums\Locale;
 
 /**
@@ -22,7 +23,7 @@ final readonly class ContentLocale
      * Create the request-scoped content locale service.
      */
     public function __construct(
-        private LocaleRegistry $locales,
+        private LocaleCatalog $locales,
         private Repository $config,
     ) {}
 
