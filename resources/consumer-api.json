@@ -1,0 +1,633 @@
+{
+    "schema_version": 1,
+    "package": "nvl/translatable",
+    "psr4": {
+        "Nvl\\Translatable\\": "src"
+    },
+    "symbols": {
+        "Nvl\\Translatable\\Actions\\DeleteTranslationResourceLocaleAction": {
+            "kind": "class",
+            "file": "src/Actions/DeleteTranslationResourceLocaleAction.php",
+            "methods": [
+                "__construct",
+                "execute"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Actions\\SyncTranslationResourceAction": {
+            "kind": "class",
+            "file": "src/Actions/SyncTranslationResourceAction.php",
+            "methods": [
+                "__construct",
+                "execute"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Contracts\\ContentLocalePreferenceResolver": {
+            "kind": "interface",
+            "file": "src/Contracts/ContentLocalePreferenceResolver.php",
+            "methods": [
+                "resolve"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Contracts\\SelfTranslatableModel": {
+            "kind": "interface",
+            "file": "src/Contracts/SelfTranslatableModel.php",
+            "methods": [
+                "getAllTranslations",
+                "getAvailableLocales",
+                "resolveTranslation",
+                "translated",
+                "translationDefinition",
+                "translationResourceKey"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Contracts\\TranslatableModel": {
+            "kind": "interface",
+            "file": "src/Contracts/TranslatableModel.php",
+            "methods": [
+                "getAllTranslations",
+                "getAvailableLocales",
+                "resolveTranslation",
+                "translated",
+                "translationDefinition",
+                "translationResourceKey",
+                "translations"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Contracts\\TranslatableResourceModel": {
+            "kind": "interface",
+            "file": "src/Contracts/TranslatableResourceModel.php",
+            "methods": [
+                "getAllTranslations",
+                "getAvailableLocales",
+                "resolveTranslation",
+                "translated",
+                "translationDefinition",
+                "translationResourceKey"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Contracts\\TranslationResourceAuthorizer": {
+            "kind": "interface",
+            "file": "src/Contracts/TranslationResourceAuthorizer.php",
+            "methods": [
+                "allows"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Data\\DeleteTranslationLocaleData": {
+            "kind": "class",
+            "file": "src/Data/DeleteTranslationLocaleData.php",
+            "methods": [
+                "__construct"
+            ],
+            "properties": [
+                "expectedVersion",
+                "locale"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Data\\TranslationActorData": {
+            "kind": "class",
+            "file": "src/Data/TranslationActorData.php",
+            "methods": [
+                "__construct",
+                "system"
+            ],
+            "properties": [
+                "id",
+                "system",
+                "type"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Data\\TranslationDeleteResultData": {
+            "kind": "class",
+            "file": "src/Data/TranslationDeleteResultData.php",
+            "methods": [
+                "__construct"
+            ],
+            "properties": [
+                "deleted",
+                "id",
+                "locale",
+                "resource",
+                "version"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Data\\TranslationMutationData": {
+            "kind": "class",
+            "file": "src/Data/TranslationMutationData.php",
+            "methods": [
+                "__construct"
+            ],
+            "properties": [
+                "expectedVersion",
+                "mode",
+                "translations"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Data\\TranslationMutationResultData": {
+            "kind": "class",
+            "file": "src/Data/TranslationMutationResultData.php",
+            "methods": [
+                "__construct"
+            ],
+            "properties": [
+                "id",
+                "locales",
+                "resource",
+                "version"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Enums\\Locale": {
+            "kind": "enum",
+            "file": "src/Enums/Locale.php",
+            "methods": [
+                "cases",
+                "from",
+                "fromValue",
+                "internationalLabel",
+                "nativeLabel",
+                "normalizeLanguageCode",
+                "options",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "BG",
+                "EN"
+            ]
+        },
+        "Nvl\\Translatable\\Enums\\TranslationFallbackPolicy": {
+            "kind": "enum",
+            "file": "src/Enums/TranslationFallbackPolicy.php",
+            "methods": [
+                "cases",
+                "from",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "AnyAvailable",
+                "Configured",
+                "ExactOnly"
+            ]
+        },
+        "Nvl\\Translatable\\Enums\\TranslationMutationPolicy": {
+            "kind": "enum",
+            "file": "src/Enums/TranslationMutationPolicy.php",
+            "methods": [
+                "cases",
+                "from",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "Direct",
+                "DomainActionOnly"
+            ]
+        },
+        "Nvl\\Translatable\\Enums\\TranslationResourceAbility": {
+            "kind": "enum",
+            "file": "src/Enums/TranslationResourceAbility.php",
+            "methods": [
+                "cases",
+                "from",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "Delete",
+                "List",
+                "Report",
+                "Synchronize",
+                "View"
+            ]
+        },
+        "Nvl\\Translatable\\Enums\\TranslationStorageStrategy": {
+            "kind": "enum",
+            "file": "src/Enums/TranslationStorageStrategy.php",
+            "methods": [
+                "cases",
+                "from",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "Related",
+                "Self"
+            ]
+        },
+        "Nvl\\Translatable\\Enums\\TranslationSyncMode": {
+            "kind": "enum",
+            "file": "src/Enums/TranslationSyncMode.php",
+            "methods": [
+                "cases",
+                "from",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "Patch",
+                "Replace"
+            ]
+        },
+        "Nvl\\Translatable\\Exceptions\\InvalidLocaleException": {
+            "kind": "class",
+            "file": "src/Exceptions/InvalidLocaleException.php",
+            "methods": [
+                "malformed",
+                "unsupported"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Exceptions\\InvalidTranslatableFieldException": {
+            "kind": "class",
+            "file": "src/Exceptions/InvalidTranslatableFieldException.php",
+            "methods": [
+                "forField"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Exceptions\\TranslationResourceException": {
+            "kind": "class",
+            "file": "src/Exceptions/TranslationResourceException.php",
+            "methods": [
+                "duplicate",
+                "duplicateLocale",
+                "invalid",
+                "requiresDomainAction",
+                "stale",
+                "unauthorized",
+                "unavailable",
+                "undeclaredFields",
+                "unknown"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\RelatedTranslationDefinition": {
+            "kind": "class",
+            "file": "src/RelatedTranslationDefinition.php",
+            "methods": [
+                "__construct",
+                "assertLocale",
+                "assertModel",
+                "assertTranslatableField",
+                "configuredFallbackLocales",
+                "foreignKey",
+                "localeChain",
+                "resolvedFallbackPolicy",
+                "shouldFallbackOnNull",
+                "storage",
+                "supportedLocales"
+            ],
+            "properties": [
+                "fallbackLocales",
+                "fallbackOnNull",
+                "fallbackPolicy",
+                "fields",
+                "foreignKey",
+                "localeKey",
+                "locales",
+                "mutationPolicy",
+                "ownerKey",
+                "ownershipResource",
+                "translationModel"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Rules\\SupportedLocaleMapRule": {
+            "kind": "class",
+            "file": "src/Rules/SupportedLocaleMapRule.php",
+            "methods": [
+                "__construct",
+                "validate"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\SelfTranslatable": {
+            "kind": "trait",
+            "file": "src/SelfTranslatable.php",
+            "methods": [
+                "cloneTranslation",
+                "deleteTranslation",
+                "getAllTranslations",
+                "getAvailableLocales",
+                "getCurrentLocale",
+                "getLocaleKey",
+                "getRelationValue",
+                "getTranslatedAttributes",
+                "getTranslation",
+                "hasTranslation",
+                "isTranslatableAttribute",
+                "locale",
+                "orderByTranslated",
+                "resolveTranslation",
+                "scopeLocale",
+                "scopeOrderByTranslated",
+                "scopeTranslationGroup",
+                "scopeWhereTranslated",
+                "scopeWhereTranslationNotNull",
+                "scopeWhereTranslationNull",
+                "scopeWithAllTranslations",
+                "scopeWithResolvedTranslations",
+                "setLocale",
+                "setTranslation",
+                "translated",
+                "translationDefinition",
+                "translationOptions",
+                "translationResourceKey",
+                "whereTranslated",
+                "whereTranslationNotNull",
+                "whereTranslationNull",
+                "withAllTranslations",
+                "withResolvedTranslations"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\SelfTranslatableOptions": {
+            "kind": "class",
+            "file": "src/SelfTranslatableOptions.php",
+            "methods": [
+                "__construct",
+                "fromDefinition",
+                "toDefinition"
+            ],
+            "properties": [
+                "allowDeletingLastTranslation",
+                "availableLocales",
+                "fallbackLocale",
+                "fallbackLocales",
+                "fallbackOnNull",
+                "fallbackPolicy",
+                "groupKey",
+                "localeKey",
+                "mutationPolicy",
+                "ownershipResource",
+                "sharedFields",
+                "translatableFields",
+                "useFallback"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\SelfTranslationDefinition": {
+            "kind": "class",
+            "file": "src/SelfTranslationDefinition.php",
+            "methods": [
+                "__construct",
+                "assertLocale",
+                "assertModel",
+                "assertTranslatableField",
+                "configuredFallbackLocales",
+                "localeChain",
+                "resolvedFallbackPolicy",
+                "shouldFallbackOnNull",
+                "storage",
+                "supportedLocales"
+            ],
+            "properties": [
+                "allowDeletingLastTranslation",
+                "fallbackLocales",
+                "fallbackOnNull",
+                "fallbackPolicy",
+                "fields",
+                "groupKey",
+                "localeKey",
+                "locales",
+                "mutationPolicy",
+                "ownershipResource",
+                "sharedFields"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\ContentLocale": {
+            "kind": "class",
+            "file": "src/Services/ContentLocale.php",
+            "methods": [
+                "__construct",
+                "available",
+                "get",
+                "getLabel",
+                "is",
+                "isBulgarian",
+                "isEnglish",
+                "isSet",
+                "options",
+                "reset",
+                "set",
+                "setFromString",
+                "withLocale"
+            ],
+            "properties": [],
+            "constants": [
+                "CONTEXT_KEY",
+                "EXPLICIT_CONTEXT_KEY"
+            ]
+        },
+        "Nvl\\Translatable\\Services\\TranslationResourceRegistry": {
+            "kind": "class",
+            "file": "src/Services/TranslationResourceRegistry.php",
+            "methods": [
+                "__construct",
+                "add",
+                "all",
+                "get",
+                "has",
+                "keys",
+                "register"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\TranslationWriter": {
+            "kind": "class",
+            "file": "src/Services/TranslationWriter.php",
+            "methods": [
+                "__construct",
+                "delete",
+                "patch",
+                "replace",
+                "sync",
+                "upsert"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Translatable": {
+            "kind": "trait",
+            "file": "src/Translatable.php",
+            "methods": [
+                "getAllTranslations",
+                "getAvailableLocales",
+                "getCurrentLocale",
+                "getRelationValue",
+                "getTranslatedAttributes",
+                "getTranslation",
+                "hasTranslation",
+                "isTranslatableAttribute",
+                "orderByTranslated",
+                "resolveTranslation",
+                "scopeOrderByTranslated",
+                "scopeWhereTranslated",
+                "scopeWhereTranslationNotNull",
+                "scopeWhereTranslationNull",
+                "scopeWithAllTranslations",
+                "scopeWithResolvedTranslations",
+                "setLocale",
+                "translated",
+                "translation",
+                "translationDefinition",
+                "translationOptions",
+                "translationResourceKey",
+                "translations",
+                "whereTranslated",
+                "whereTranslationNotNull",
+                "whereTranslationNull",
+                "withAllTranslations",
+                "withResolvedTranslations"
+            ],
+            "properties": [
+                "translations"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\TranslatableOptions": {
+            "kind": "class",
+            "file": "src/TranslatableOptions.php",
+            "methods": [
+                "__construct",
+                "assertLocale",
+                "assertTranslatableField",
+                "configuredFallbackLocales",
+                "fromDefinition",
+                "getForeignKey",
+                "localeChain",
+                "normalizedFallbackLocales",
+                "toDefinition"
+            ],
+            "properties": [
+                "availableLocales",
+                "fallbackLocale",
+                "fallbackLocales",
+                "fallbackOnNull",
+                "fallbackPolicy",
+                "foreignKey",
+                "localeKey",
+                "mutationPolicy",
+                "ownerKey",
+                "ownershipResource",
+                "translatableFields",
+                "translationModel",
+                "useFallback"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\TranslationDefinition": {
+            "kind": "class",
+            "file": "src/TranslationDefinition.php",
+            "methods": [
+                "__construct",
+                "assertLocale",
+                "assertTranslatableField",
+                "configuredFallbackLocales",
+                "localeChain",
+                "resolvedFallbackPolicy",
+                "shouldFallbackOnNull",
+                "storage",
+                "supportedLocales"
+            ],
+            "properties": [
+                "fallbackLocales",
+                "fallbackOnNull",
+                "fallbackPolicy",
+                "fields",
+                "localeKey",
+                "locales",
+                "mutationPolicy",
+                "ownershipResource"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\TranslationResolution": {
+            "kind": "class",
+            "file": "src/TranslationResolution.php",
+            "methods": [
+                "__construct",
+                "isMissing",
+                "usedFallback"
+            ],
+            "properties": [
+                "field",
+                "localeChain",
+                "requestedLocale",
+                "requestedTranslationExists",
+                "resolvedLocale",
+                "value"
+            ],
+            "constants": []
+        },
+        "Nvl\\Translatable\\TranslationResourceDefinition": {
+            "kind": "class",
+            "file": "src/TranslationResourceDefinition.php",
+            "methods": [
+                "__construct",
+                "authorize",
+                "metadata",
+                "newModel"
+            ],
+            "properties": [
+                "authorization",
+                "displayColumns",
+                "key",
+                "label",
+                "maximumPageSize",
+                "modelClass",
+                "orderColumn",
+                "queryScope",
+                "searchableColumns"
+            ],
+            "constants": []
+        }
+    },
+    "models": {},
+    "capability_relations": {},
+    "tables": {}
+}
