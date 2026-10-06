@@ -1,0 +1,31 @@
+{
+    "schema_version": 1,
+    "configs": {
+        "nvl-translatable": {
+            "required": [],
+            "common": [
+                "default_locale",
+                "locales",
+                "resources"
+            ],
+            "advanced": [
+                "fallback.on_null",
+                "fallback.policy",
+                "fallback_locales",
+                "labels.bg.international",
+                "labels.bg.native",
+                "labels.en.international",
+                "labels.en.native",
+                "limits.mutation_depth",
+                "limits.mutation_fields",
+                "limits.mutation_locales",
+                "limits.mutation_value_bytes",
+                "middleware.cookie_minutes",
+                "middleware.cookie_name",
+                "middleware.query_parameter",
+                "middleware.session_key",
+                "transactions.attempts"
+            ]
+        }
+    }
+}

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Composer\InstalledVersions;
 use Illuminate\Support\Facades\DB;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Symfony\Component\Filesystem\Filesystem;
@@ -18,8 +19,8 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
         $this->markTestSkipped('The required concurrency gate needs the dedicated Redis barrier.');
     }
 
-    $root = dirname(__DIR__, 6);
-    $source = $root.'/packages/nvl/translatable/tests/Fixtures/tenancy-consumer';
+    $vendor = dirname((new ReflectionClass(InstalledVersions::class))->getFileName(), 2);
+    $source = dirname(__DIR__, 2).'/Fixtures/tenancy-consumer';
     $fixture = sys_get_temp_dir().'/nvl-translatable-race-'.bin2hex(random_bytes(8));
     $schema = 'nvl_translatable_'.bin2hex(random_bytes(8));
     $barrier = 'nvl:translatable:race:'.bin2hex(random_bytes(12));
@@ -39,8 +40,9 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
 
         $environment = [
             'APP_ENV' => 'testing',
+            'APP_BASE_PATH' => $fixture,
             'APP_KEY' => 'base64:'.base64_encode(str_repeat('a', 32)),
-            'NVL_TEST_SUITE_ROOT' => $root,
+            'NVL_TEST_VENDOR_DIR' => $vendor,
             'DB_CONNECTION' => 'pgsql',
             'DB_HOST' => (string) getenv('DB_HOST'),
             'DB_PORT' => (string) getenv('DB_PORT'),

@@ -8,6 +8,7 @@ use Illuminate\Support\ServiceProvider;
 use Nvl\Data\Services\TypeScriptSourceRegistry;
 use Nvl\Support\Doctor\DoctorCheck;
 use Nvl\Support\Doctor\PackageDoctorContributor;
+use Nvl\Support\Globals\GlobalNames;
 use Nvl\Support\Providers\SupportServiceProvider;
 use Nvl\Support\Providers\TenantServiceProvider;
 use Nvl\Support\Traits\MergesPackageConfiguration;
@@ -17,6 +18,8 @@ use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Console\Commands\GatherTranslationResourcesCommand;
 use Nvl\Translatable\Console\Commands\TranslatableDoctorCommand;
 use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
+use Nvl\Translatable\Contracts\DeleteTranslationResourceLocaleContract;
+use Nvl\Translatable\Contracts\SyncTranslationResourceContract;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Services\ContentLocale;
@@ -48,6 +51,9 @@ final class TranslatableServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        $this->app->bindIf(DeleteTranslationResourceLocaleContract::class, DeleteTranslationResourceLocaleAction::class);
+        $this->app->bindIf(SyncTranslationResourceContract::class, SyncTranslationResourceAction::class);
+
         $this->app->register(SupportServiceProvider::class);
         PackageDoctorContributor::register($this->app, 'nvl/translatable', function (): array {
             $report = $this->app->make(TranslationDoctor::class)->inspect();
@@ -81,13 +87,13 @@ final class TranslatableServiceProvider extends ServiceProvider
         $this->app->scoped(TranslationResourceLocator::class);
         $this->app->scoped(TranslationResourceVersioner::class);
         $this->app->scoped(TranslationResourceAuthorization::class);
-        $this->app->bind(SyncTranslationResourceAction::class);
-        $this->app->bind(DeleteTranslationResourceLocaleAction::class);
-        $this->app->bind(
+        $this->app->bindIf(SyncTranslationResourceAction::class);
+        $this->app->bindIf(DeleteTranslationResourceLocaleAction::class);
+        $this->app->bindIf(
             ContentLocalePreferenceResolver::class,
             NullContentLocalePreferenceResolver::class,
         );
-        $this->app->bind(
+        $this->app->bindIf(
             TranslationResourceAuthorizer::class,
             SystemTranslationResourceAuthorizer::class,
         );
@@ -100,6 +106,10 @@ final class TranslatableServiceProvider extends ServiceProvider
         TranslationResourceRegistry $resources,
         TypeScriptSourceRegistry $typeScriptSources,
     ): void {
+        $this->app->make(GlobalNames::class)->translations('translatable', __DIR__.'/../../lang', $this->app->make('translation.loader'));
+        $this->publishes([
+            __DIR__.'/../../lang' => lang_path('vendor/nvl-translatable'),
+        ], 'nvl-translatable-translations');
         $typeScriptSources->register(__DIR__.'/..', 'nvl/translatable');
 
         $this->publishes([

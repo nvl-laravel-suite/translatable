@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Composer\InstalledVersions;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
@@ -9,8 +10,8 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 
 it('restores tenant translation context in a real database queue worker', function (): void {
-    $root = dirname(__DIR__, 6);
-    $source = $root.'/packages/nvl/translatable/tests/Fixtures/tenancy-consumer';
+    $vendor = dirname((new ReflectionClass(InstalledVersions::class))->getFileName(), 2);
+    $source = dirname(__DIR__, 2).'/Fixtures/tenancy-consumer';
     $fixture = sys_get_temp_dir().'/nvl-translatable-worker-'.bin2hex(random_bytes(8));
     $database = $fixture.'/database.sqlite';
     $queue = 'translation-tenant-proof-'.bin2hex(random_bytes(6));
@@ -31,7 +32,7 @@ it('restores tenant translation context in a real database queue worker', functi
             'APP_ENV' => 'testing',
             'APP_BASE_PATH' => $fixture,
             'APP_KEY' => 'base64:'.base64_encode(str_repeat('a', 32)),
-            'NVL_TEST_SUITE_ROOT' => $root,
+            'NVL_TEST_VENDOR_DIR' => $vendor,
             'DB_CONNECTION' => 'sqlite',
             'DB_DATABASE' => $database,
             'CACHE_STORE' => 'file',

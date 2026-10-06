@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Tests\Fixtures;
 
+use Composer\InstalledVersions;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Foundation\MaintenanceMode;
 use Illuminate\Database\Schema\Blueprint;
@@ -76,11 +77,9 @@ final class TenancyConsumerSetupCommand extends Command
     /** Create core, queue, failure, and probe tables on the configured disposable connection. */
     private function createInfrastructure(): void
     {
-        $root = getenv('NVL_TEST_SUITE_ROOT');
-        if (! is_string($root) || $root === '') {
-            throw new RuntimeException('The fixture requires NVL_TEST_SUITE_ROOT.');
-        }
-        $migration = require $root.'/packages/nvl/tenancy/database/migrations/tenancy/2026_09_16_000001_nvl_tenancy_create_tenancy_core_tables.php';
+        $tenancyPath = InstalledVersions::getInstallPath('nvl/tenancy')
+            ?? throw new RuntimeException('The worker fixture requires the installed optional Tenancy package.');
+        $migration = require $tenancyPath.'/database/migrations/tenancy/2026_09_16_000001_nvl_tenancy_create_tenancy_core_tables.php';
         if (! is_object($migration) || ! is_callable([$migration, 'up'])) {
             throw new RuntimeException('The tenancy core migration is invalid.');
         }

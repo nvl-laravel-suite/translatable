@@ -1,0 +1,382 @@
+{
+  "schema_version": 1,
+  "package": "nvl/translatable",
+  "documentation": "docs/events.md",
+  "implementation_status": "implemented; executable acceptance proof pending",
+  "events": [
+    {
+      "class": "Nvl\\Translatable\\Events\\TranslationResourceLocaleDeleted",
+      "source": "packages/nvl/translatable/src/Events/TranslationResourceLocaleDeleted.php",
+      "constructor_fields": [
+        {
+          "name": "resource",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "ownerType",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "ownerId",
+          "type": "int|string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "locale",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "actor",
+          "type": "Nvl\\Translatable\\Data\\TranslationActorData",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "previousVersion",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "schemaVersion",
+          "type": "int",
+          "visibility": "public",
+          "required": false,
+          "default_expression": "1"
+        }
+      ],
+      "public_fields": [
+        {
+          "name": "resource",
+          "type": "string"
+        },
+        {
+          "name": "ownerType",
+          "type": "string"
+        },
+        {
+          "name": "ownerId",
+          "type": "int|string"
+        },
+        {
+          "name": "locale",
+          "type": "string"
+        },
+        {
+          "name": "actor",
+          "type": "Nvl\\Translatable\\Data\\TranslationActorData"
+        },
+        {
+          "name": "previousVersion",
+          "type": "string"
+        },
+        {
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "name": "schemaVersion",
+          "type": "int"
+        }
+      ],
+      "kind": "value_object",
+      "schema_version": 1,
+      "trigger": "Owner locale deleted.",
+      "aliases": [],
+      "producers": [
+        {
+          "path": "packages/nvl/translatable/src/Actions/DeleteTranslationResourceLocaleAction.php",
+          "trigger": "Owner locale deleted.",
+          "connection": "$owner->getConnection()",
+          "construction_expression": "new TranslationResourceLocaleDeleted( resource: $resourceKey, ownerType: $owner->getMorphClass(), ownerId: $resourceId, locale: $normalizedLocale, actor: $actor, previousVersion: $previousVersion, version: $version, )"
+        }
+      ],
+      "security_notes": [
+        "Resource/morph-owner identity, locale list, sync mode, version hashes and actor only; no translated field content/model. Gathered is a read observation with page/count metadata."
+      ],
+      "no_op_semantics": "Sync/delete writer guards govern publication. Gather operations are read observations and can repeat. The actual host owner/probe model connection is supplied rather than inventing a default write."
+    },
+    {
+      "class": "Nvl\\Translatable\\Events\\TranslationResourceSynced",
+      "source": "packages/nvl/translatable/src/Events/TranslationResourceSynced.php",
+      "constructor_fields": [
+        {
+          "name": "resource",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "ownerType",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "ownerId",
+          "type": "int|string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "locales",
+          "type": "array",
+          "visibility": "public",
+          "required": true,
+          "phpdoc_type": "list<string>"
+        },
+        {
+          "name": "mode",
+          "type": "Nvl\\Translatable\\Enums\\TranslationSyncMode",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "actor",
+          "type": "Nvl\\Translatable\\Data\\TranslationActorData",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "previousVersion",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "version",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "schemaVersion",
+          "type": "int",
+          "visibility": "public",
+          "required": false,
+          "default_expression": "1"
+        }
+      ],
+      "public_fields": [
+        {
+          "name": "resource",
+          "type": "string"
+        },
+        {
+          "name": "ownerType",
+          "type": "string"
+        },
+        {
+          "name": "ownerId",
+          "type": "int|string"
+        },
+        {
+          "name": "locales",
+          "type": "array",
+          "phpdoc_type": "list<string>"
+        },
+        {
+          "name": "mode",
+          "type": "Nvl\\Translatable\\Enums\\TranslationSyncMode"
+        },
+        {
+          "name": "actor",
+          "type": "Nvl\\Translatable\\Data\\TranslationActorData"
+        },
+        {
+          "name": "previousVersion",
+          "type": "string"
+        },
+        {
+          "name": "version",
+          "type": "string"
+        },
+        {
+          "name": "schemaVersion",
+          "type": "int"
+        }
+      ],
+      "kind": "value_object",
+      "schema_version": 1,
+      "trigger": "Owner localized resource synchronized.",
+      "aliases": [],
+      "producers": [
+        {
+          "path": "packages/nvl/translatable/src/Actions/SyncTranslationResourceAction.php",
+          "trigger": "Owner localized resource synchronized.",
+          "connection": "$owner->getConnection()",
+          "construction_expression": "new TranslationResourceSynced( resource: $resourceKey, ownerType: $owner->getMorphClass(), ownerId: $resourceId, locales: $locales, mode: $mutation->mode, actor: $actor, previousVersion: $previousVersion, version: $version, )"
+        }
+      ],
+      "security_notes": [
+        "Resource/morph-owner identity, locale list, sync mode, version hashes and actor only; no translated field content/model. Gathered is a read observation with page/count metadata."
+      ],
+      "no_op_semantics": "Sync/delete writer guards govern publication. Gather operations are read observations and can repeat. The actual host owner/probe model connection is supplied rather than inventing a default write."
+    },
+    {
+      "class": "Nvl\\Translatable\\Events\\TranslationResourcesGathered",
+      "source": "packages/nvl/translatable/src/Events/TranslationResourcesGathered.php",
+      "constructor_fields": [
+        {
+          "name": "resource",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "page",
+          "type": "int",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "count",
+          "type": "int",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "actor",
+          "type": "Nvl\\Translatable\\Data\\TranslationActorData",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "schemaVersion",
+          "type": "int",
+          "visibility": "public",
+          "required": false,
+          "default_expression": "1"
+        }
+      ],
+      "public_fields": [
+        {
+          "name": "resource",
+          "type": "string"
+        },
+        {
+          "name": "page",
+          "type": "int"
+        },
+        {
+          "name": "count",
+          "type": "int"
+        },
+        {
+          "name": "actor",
+          "type": "Nvl\\Translatable\\Data\\TranslationActorData"
+        },
+        {
+          "name": "schemaVersion",
+          "type": "int"
+        }
+      ],
+      "kind": "value_object",
+      "schema_version": 1,
+      "trigger": "Localized resources read page gathered.",
+      "aliases": [],
+      "producers": [
+        {
+          "path": "packages/nvl/translatable/src/Services/TranslationResourceGatherer.php",
+          "trigger": "Localized resources read page gathered.",
+          "connection": "$model->getConnection()",
+          "construction_expression": "new TranslationResourcesGathered( resource: $resourceKey, page: $paginator->currentPage(), count: $paginator->count(), actor: $actor, )"
+        }
+      ],
+      "security_notes": [
+        "Resource/morph-owner identity, locale list, sync mode, version hashes and actor only; no translated field content/model. Gathered is a read observation with page/count metadata."
+      ],
+      "no_op_semantics": "Sync/delete writer guards govern publication. Gather operations are read observations and can repeat. The actual host owner/probe model connection is supplied rather than inventing a default write."
+    }
+  ],
+  "value_types": [
+    {
+      "class": "Nvl\\Translatable\\Data\\TranslationActorData",
+      "source": "packages/nvl/translatable/src/Data/TranslationActorData.php",
+      "constructor_fields": [
+        {
+          "name": "type",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "id",
+          "type": "int|string|null",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "system",
+          "type": "bool",
+          "visibility": "public",
+          "required": false,
+          "default_expression": "false"
+        }
+      ],
+      "public_fields": [
+        {
+          "name": "type",
+          "type": "string"
+        },
+        {
+          "name": "id",
+          "type": "int|string|null"
+        },
+        {
+          "name": "system",
+          "type": "bool"
+        }
+      ],
+      "kind": "value_object"
+    },
+    {
+      "class": "Nvl\\Translatable\\Enums\\TranslationSyncMode",
+      "source": "packages/nvl/translatable/src/Enums/TranslationSyncMode.php",
+      "constructor_fields": [],
+      "public_fields": [],
+      "kind": "enum",
+      "backing_type": "string",
+      "cases": [
+        {
+          "name": "Patch",
+          "value": "patch"
+        },
+        {
+          "name": "Replace",
+          "value": "replace"
+        }
+      ]
+    }
+  ],
+  "aliases": [],
+  "publication": {
+    "publication": "The native host dispatcher receives the captured event after the supplied source connection outer commit, or immediately when that connection has no active transaction.",
+    "rollback": "Callbacks attach to the matching native connection and current nesting record; native outer/savepoint rollback discards the corresponding callbacks.",
+    "registration_failure": "Missing source transaction records fail before commit; Mail Notifications reports and drops unusable observations.",
+    "host_policy": "Host after-commit listeners and queue after_commit policies can add their own deferral after publication. Host transaction infrastructure and dispatcher bindings are preserved.",
+    "delivery_limit": "Local callbacks are not an outbox. Process exit between commit and callback can lose delivery; no crash durability or exactly-once delivery is promised.",
+    "cardinality": "One canonical object is dispatched per qualifying producer call. This is local publication, not cross-process deduplication or a guarantee that repeated observations are unique.",
+    "manual_producers": "Use Nvl\\Support\\Events\\DomainEventDispatcher::dispatch($event, $writerConnection). Native Event::dispatch() is immediate and has no package interception."
+  },
+  "security_notes": [
+    "Resource/morph-owner identity, locale list, sync mode, version hashes and actor only; no translated field content/model. Gathered is a read observation with page/count metadata."
+  ],
+  "no_op_semantics": "Sync/delete writer guards govern publication. Gather operations are read observations and can repeat. The actual host owner/probe model connection is supplied rather than inventing a default write.",
+  "notes": [
+    "Owner references use the persisted Laravel morph identity and scalar key; version strings are resource version hashes, distinct from event schemaVersion."
+  ]
+}

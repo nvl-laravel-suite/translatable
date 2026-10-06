@@ -7,6 +7,7 @@ namespace Nvl\Translatable\Tests;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
 use Nvl\Data\Providers\DataServiceProvider;
+use Nvl\Support\Providers\LocaleServiceProvider;
 use Nvl\Tenancy\Providers\TenancyServiceProvider;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -45,8 +46,9 @@ abstract class TestCase extends Orchestra
     protected function getPackageProviders($app)
     {
         return [
+            LocaleServiceProvider::class,
             DataServiceProvider::class,
-            TenancyServiceProvider::class,
+            ...(class_exists(TenancyServiceProvider::class) ? [TenancyServiceProvider::class] : []),
             TranslatableServiceProvider::class,
         ];
     }

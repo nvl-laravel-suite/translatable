@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
-use Illuminate\Support\Facades\Event;
 use LogicException;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Events\DomainEventDispatcher;
 use Nvl\Support\Tenancy\Contracts\TenantOwnershipConfiguration;
 use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
@@ -50,6 +50,7 @@ final readonly class TranslationResourceGatherer
         private TranslationOwnership $ownership,
         private TenantResourceRegistry $tenantResources,
         private TenantOwnershipConfiguration $tenantOwnership,
+        private DomainEventDispatcher $domainEvents,
     ) {}
 
     /**
@@ -153,12 +154,12 @@ final readonly class TranslationResourceGatherer
             fn (Model $record): TranslationResourceRecordData => $this->serialize($resource, $record),
         );
 
-        Event::dispatch(new TranslationResourcesGathered(
+        $this->domainEvents->dispatch(new TranslationResourcesGathered(
             resource: $resourceKey,
             page: $paginator->currentPage(),
             count: $paginator->count(),
             actor: $actor,
-        ));
+        ), $model->getConnection());
 
         return $paginator;
     }

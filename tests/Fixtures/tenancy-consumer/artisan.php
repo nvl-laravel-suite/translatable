@@ -10,10 +10,12 @@ use Nvl\Translatable\Providers\TranslatableServiceProvider;
 use Nvl\Translatable\Tests\Fixtures\TenancyConsumerServiceProvider;
 use Symfony\Component\Console\Input\ArgvInput;
 
-$root = getenv('NVL_TEST_SUITE_ROOT');
-$root = is_string($root) && $root !== '' ? $root : dirname(__DIR__, 6);
-require $root.'/vendor/autoload.php';
-putenv('COMPOSER_VENDOR_DIR='.$root.'/vendor');
+$vendor = getenv('NVL_TEST_VENDOR_DIR');
+if (! is_string($vendor) || $vendor === '' || ! is_file($vendor.'/autoload.php')) {
+    throw new RuntimeException('The worker fixture requires the isolated consumer vendor directory.');
+}
+require $vendor.'/autoload.php';
+putenv('COMPOSER_VENDOR_DIR='.$vendor);
 
 $app = Application::configure(basePath: __DIR__)
     ->withProviders([

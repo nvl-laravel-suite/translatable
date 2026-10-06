@@ -6,8 +6,9 @@ namespace Nvl\Translatable\Actions;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Support\Facades\Event;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Events\DomainEventDispatcher;
+use Nvl\Translatable\Contracts\DeleteTranslationResourceLocaleContract;
 use Nvl\Translatable\Data\DeleteTranslationLocaleData;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationDeleteResultData;
@@ -26,7 +27,7 @@ use Nvl\Translatable\Services\TranslationWriter;
  *
  * @api
  */
-final readonly class DeleteTranslationResourceLocaleAction
+final readonly class DeleteTranslationResourceLocaleAction implements DeleteTranslationResourceLocaleContract
 {
     /**
      * Create the centralized locale deletion action.
@@ -39,6 +40,7 @@ final readonly class DeleteTranslationResourceLocaleAction
         private TranslationResourceVersioner $versioner,
         private TranslationResourceLocator $locator,
         private Repository $config,
+        private DomainEventDispatcher $domainEvents,
     ) {}
 
     /**
@@ -54,7 +56,7 @@ final readonly class DeleteTranslationResourceLocaleAction
         $connection = $resource->newModel()->getConnection();
 
         return $connection->transaction(function () use (
-            $connection,
+
             $resource,
             $resourceKey,
             $id,
@@ -89,25 +91,15 @@ final readonly class DeleteTranslationResourceLocaleAction
             $resourceId = $owner->translationResourceKey();
 
             if ($deleted) {
-                $connection->afterCommit(static function () use (
-                    $resourceKey,
-                    $resourceId,
-                    $owner,
-                    $normalizedLocale,
-                    $actor,
-                    $previousVersion,
-                    $version,
-                ): void {
-                    Event::dispatch(new TranslationResourceLocaleDeleted(
-                        resource: $resourceKey,
-                        ownerType: $owner::class,
-                        ownerId: $resourceId,
-                        locale: $normalizedLocale,
-                        actor: $actor,
-                        previousVersion: $previousVersion,
-                        version: $version,
-                    ));
-                });
+                $this->domainEvents->dispatch(new TranslationResourceLocaleDeleted(
+                    resource: $resourceKey,
+                    ownerType: $owner->getMorphClass(),
+                    ownerId: $resourceId,
+                    locale: $normalizedLocale,
+                    actor: $actor,
+                    previousVersion: $previousVersion,
+                    version: $version,
+                ), $owner->getConnection());
             }
 
             return new TranslationDeleteResultData(

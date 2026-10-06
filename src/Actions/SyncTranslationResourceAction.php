@@ -7,8 +7,9 @@ namespace Nvl\Translatable\Actions;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Event;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Events\DomainEventDispatcher;
+use Nvl\Translatable\Contracts\SyncTranslationResourceContract;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Data\TranslationMutationData;
@@ -28,7 +29,7 @@ use Nvl\Translatable\Services\TranslationWriter;
  *
  * @api
  */
-final readonly class SyncTranslationResourceAction
+final readonly class SyncTranslationResourceAction implements SyncTranslationResourceContract
 {
     /**
      * Create the centralized translation synchronization action.
@@ -41,6 +42,7 @@ final readonly class SyncTranslationResourceAction
         private TranslationResourceVersioner $versioner,
         private TranslationResourceLocator $locator,
         private Repository $config,
+        private DomainEventDispatcher $domainEvents,
     ) {}
 
     /**
@@ -56,7 +58,7 @@ final readonly class SyncTranslationResourceAction
         $connection = $resource->newModel()->getConnection();
 
         return $connection->transaction(function () use (
-            $connection,
+
             $resource,
             $resourceKey,
             $id,
@@ -88,27 +90,16 @@ final readonly class SyncTranslationResourceAction
             $version = $this->versioner->version($owner);
             $resourceId = $owner->translationResourceKey();
 
-            $connection->afterCommit(static function () use (
-                $resourceKey,
-                $resourceId,
-                $owner,
-                $locales,
-                $mutation,
-                $actor,
-                $previousVersion,
-                $version,
-            ): void {
-                Event::dispatch(new TranslationResourceSynced(
-                    resource: $resourceKey,
-                    ownerType: $owner::class,
-                    ownerId: $resourceId,
-                    locales: $locales,
-                    mode: $mutation->mode,
-                    actor: $actor,
-                    previousVersion: $previousVersion,
-                    version: $version,
-                ));
-            });
+            $this->domainEvents->dispatch(new TranslationResourceSynced(
+                resource: $resourceKey,
+                ownerType: $owner->getMorphClass(),
+                ownerId: $resourceId,
+                locales: $locales,
+                mode: $mutation->mode,
+                actor: $actor,
+                previousVersion: $previousVersion,
+                version: $version,
+            ), $owner->getConnection());
 
             return new TranslationMutationResultData(
                 resource: $resourceKey,

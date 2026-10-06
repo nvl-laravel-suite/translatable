@@ -5,14 +5,26 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Exceptions;
 
 use InvalidArgumentException;
+use Nvl\Support\Contracts\RespondableException;
+use Nvl\Support\Exceptions\ExceptionResponse;
+use Nvl\Support\Traits\InteractsWithPackageFailure;
+use Nvl\Translatable\Enums\TranslatableResponseCode;
 
 /**
  * Reports invalid centralized translation resource registration or mutation.
  *
  * @api
  */
-final class TranslationResourceException extends InvalidArgumentException
+final class TranslationResourceException extends InvalidArgumentException implements RespondableException
 {
+    use InteractsWithPackageFailure;
+
+    /** Resolve safe package response metadata. */
+    protected function exceptionResponse(): ExceptionResponse
+    {
+        return new ExceptionResponse('translatable', TranslatableResponseCode::InvalidTranslationResource, 422);
+    }
+
     /**
      * Create an exception for an unknown resource key.
      *

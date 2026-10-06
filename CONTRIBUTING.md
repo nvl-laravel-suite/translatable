@@ -1,29 +1,5 @@
-# Contributing to NVL Translatable
+# Contributing
 
-This public repository is a publication mirror of private source. Open an issue
-here for a bug or proposal; include a reproduction and, if helpful, a patch.
-Maintainers apply accepted changes in source and publish a mirror release.
-Direct mirror pull requests do not update source. See the
-[organization contribution guide](https://github.com/nvl-laravel-suite/.github/blob/main/CONTRIBUTING.md).
+This repository is a read-only release mirror. Pull requests to the mirror are not accepted. Open a public issue with a reproducible example or a proposed patch. Maintainers apply reviewed changes in the private source repository and publish immutable releases from there.
 
-Changes must preserve explicit typed declarations, both storage strategies,
-deterministic field-level fallback, locale isolation, and transport-agnostic
-core services. HTTP integration must remain confined to middleware adapters.
-
-Test normalization, every fallback policy, empty values, related eager-loading
-query counts, self-group query composition, registry validation,
-authorization, non-default connections, optimistic concurrency, payload
-limits, after-commit events, diagnostics, and worker isolation.
-
-New resource integrations must declare their storage strategy, fields,
-structural keys, scope, authorization, pagination, and database constraints.
-Keep `README.md`, `SECURITY.md`, `UPGRADING.md`, the bundled Boost guideline,
-the bundled `nvl-translatable` skill, and the project workspace's translatable
-skill consistent whenever a public invariant changes.
-
-Run Pest, Pint, PHPStan at maximum strictness, Composer validation,
-`composer audit`, dependency analysis, TypeScript declaration checks,
-`nvl:translatable:doctor --json`, skill validation, and distribution
-validation. Documentation examples must use the same key strategy, table
-names, connections, fillable fields, casts, and constraints as the schema they
-describe.
+Report vulnerabilities privately through the [security policy](https://github.com/nvl-laravel-suite/translatable/security/policy). Public issues must not contain undisclosed vulnerability details.

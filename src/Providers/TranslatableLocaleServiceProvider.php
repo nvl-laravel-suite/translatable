@@ -8,7 +8,6 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Support\Locales\ApplicationLocaleCatalog;
-use Nvl\Support\Providers\LocaleServiceProvider;
 use Nvl\Translatable\Services\LocaleRegistry;
 use Nvl\Translatable\Services\LocaleRegistryCatalog;
 
@@ -18,7 +17,6 @@ final class TranslatableLocaleServiceProvider extends ServiceProvider
     /** Register the configured catalog independently of provider discovery order. */
     public function register(): void
     {
-        $this->app->register(LocaleServiceProvider::class);
         $this->app->singleton(LocaleRegistry::class);
         $this->app->extend(LocaleCatalog::class, static function (LocaleCatalog $catalog, Application $app): LocaleCatalog {
             return $catalog instanceof ApplicationLocaleCatalog
