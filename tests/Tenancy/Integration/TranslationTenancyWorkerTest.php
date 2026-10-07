@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 use Composer\InstalledVersions;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Filesystem\Filesystem;
 use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
-use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 
 it('restores tenant translation context in a real database queue worker', function (): void {
@@ -18,14 +18,16 @@ it('restores tenant translation context in a real database queue worker', functi
     $files = new Filesystem;
 
     try {
-        $files->mirror($source, $fixture);
-        $files->mkdir([
+        $files->copyDirectory($source, $fixture);
+        foreach ([
             $fixture.'/app',
             $fixture.'/bootstrap/cache',
             $fixture.'/storage/framework/cache/data',
             $fixture.'/storage/framework/views',
             $fixture.'/storage/logs',
-        ]);
+        ] as $directory) {
+            $files->ensureDirectoryExists($directory);
+        }
         touch($database);
 
         $environment = [
@@ -147,6 +149,6 @@ it('restores tenant translation context in a real database queue worker', functi
             ->and($corruptEnvelopeFailures[0])->not->toContain(ModelNotFoundException::class)
             ->and((int) $pdo->query('select count(*) from jobs')->fetchColumn())->toBe(0, $diagnostics);
     } finally {
-        $files->remove($fixture);
+        $files->deleteDirectory($fixture);
     }
 });
