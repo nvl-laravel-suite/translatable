@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Foundation\Application;
 use Nvl\Data\Providers\DataServiceProvider;
+use Nvl\Support\Providers\LocaleServiceProvider;
 use Nvl\Support\Providers\SupportServiceProvider;
 use Nvl\Tenancy\Providers\TenancyServiceProvider;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
@@ -19,7 +20,7 @@ putenv('COMPOSER_VENDOR_DIR='.$vendor);
 
 $app = Application::configure(basePath: __DIR__)
     ->withProviders([
-        SupportServiceProvider::class,
+        LocaleServiceProvider::class, SupportServiceProvider::class,
         DataServiceProvider::class,
         TenancyServiceProvider::class,
         TranslatableServiceProvider::class,
