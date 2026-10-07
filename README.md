@@ -40,7 +40,7 @@ See the [installation and publishing guide](https://github.com/nvl-laravel-suite
 | Service provider | `Nvl\Translatable\Providers\TranslatableServiceProvider` |
 | Configuration | `config/nvl-translatable.php` |
 
-Typed, deterministic Eloquent content translations for Laravel 13.
+Typed, deterministic Eloquent content translations for Laravel 12–13.
 
 ## Purpose
 
@@ -81,7 +81,7 @@ cookies.
 
 ## Requirements
 
-- PHP `^8.3`
+- PHP `^8.4`
 - Laravel `^13.0`
 - `nvl/core` for public DTO and TypeScript declarations
 
