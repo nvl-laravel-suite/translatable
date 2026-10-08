@@ -3,13 +3,15 @@
 
 All notable changes to `nvl/translatable` are documented here.
 
-## [5.0.0] — release candidate (unpublished)
+## [Unreleased]
+
+## [5.0.0] - 2026-10-08
 
 ### Changed
 
 - Both resource workflows gain focused contracts. Authorizer and locale-preference defaults retain host bindings; scoped locale behavior and host-owned translation definitions remain native. Document contract substitution and truthful host fixtures in Testing your app.
 - Classify the supported consumer PHP surface with explicit source annotations and restrict package model handles to declared identity and in-memory read fields; preserve existing workflow behavior and concrete signatures.
-- Prepare lockstep major 5 with required and development NVL peer floors of `^5.0`. This candidate has not been tagged or published.
+- Adopt lockstep major 5 with required and development NVL peer floors of `^5.0`.
 - Use canonical config/env inputs and preserve host locale catalogs and scoped content locale boundaries.
 - Review [UPGRADING.md](UPGRADING.md) before adopting the new names and infrastructure boundaries.
 
