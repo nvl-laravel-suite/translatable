@@ -167,6 +167,8 @@ trait SelfTranslatable
         if ($model->isDirty([
             'tenant_id',
             'ownership_key',
+            'owner_scope_key',
+            'owner_reference',
             $definition->groupKey,
             $definition->localeKey,
         ])) {

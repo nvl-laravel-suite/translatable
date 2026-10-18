@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Support\OwnerRegistry;
 use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
 use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Data\DeleteTranslationLocaleData;
@@ -23,6 +25,7 @@ use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Support\ConfiguredTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestConnectedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestDomainManagedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestMismatchedConnectionModel;
@@ -67,6 +70,17 @@ test('it exposes one registry for every resource registered in the isolated appl
     $keys = app(TranslationResourceRegistry::class)->keys();
 
     expect($keys)->toContain('tests.models');
+});
+
+test('it compiles configured subclasses before building their translation resource definitions', function (): void {
+    app(OwnerRegistry::class)->registerReplacement('fixture.configured-record', TestTranslatableModel::class, ConfiguredTranslatableModel::class);
+    $resource = app(TranslationResourceRegistry::class)->register('tests.configured', TestTranslatableModel::class, 'Configured records');
+    $prototype = $resource->newModel();
+    expect($prototype)->toBeInstanceOf(ConfiguredTranslatableModel::class)
+        ->and(Relation::getMorphedModel(TestTranslatableModel::class))->toBe(ConfiguredTranslatableModel::class);
+    $record = $prototype->newQuery()->create(['slug' => 'configured']);
+    app(TranslationWriter::class)->upsert($record, 'en', ['name' => 'Configured value']);
+    expect($record->translated('name', 'en'))->toBe('Configured value');
 });
 
 test('it gathers normalized translations and locale coverage without n plus one reads', function (): void {

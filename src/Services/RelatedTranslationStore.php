@@ -10,9 +10,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Nvl\Support\Tenancy\Contracts\TenantBoundary;
-use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
-use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Ownership\Compatibility\LegacyResourceDefinitions;
+use Nvl\Support\Ownership\Contracts\OwnershipBoundary;
+use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
@@ -25,8 +25,9 @@ final readonly class RelatedTranslationStore
     /** Resolve the scoped domain ownership boundary. */
     public function __construct(
         private TranslationOwnership $ownership,
-        private TenantBoundary $boundary,
-        private TenantResourceRegistry $resources,
+        private OwnershipBoundary $boundary,
+        private OwnershipResourceRegistry $resources,
+        private LegacyResourceDefinitions $legacy,
     ) {}
 
     /**
@@ -136,13 +137,13 @@ final readonly class RelatedTranslationStore
         $key = $owner->getAttribute($definition->ownerKey);
         if ($attributes !== []) {
             if ($owner->isDirty([$owner->getKeyName(), $definition->ownerKey, 'tenant_id', 'ownership_key'])) {
-                throw new TenantBoundaryViolation('Translation owner identity cannot be changed in memory.');
+                throw $this->ownership->violation('Translation owner identity cannot be changed in memory.');
             }
             $key = $owner->getConnection()->table($owner->getTable())
                 ->where($owner->getKeyName(), $owner->getRawOriginal($owner->getKeyName()))
                 ->value($definition->ownerKey);
             if ($key !== $owner->getRawOriginal($definition->ownerKey)) {
-                throw new TenantBoundaryViolation('The canonical translation owner identity has changed.');
+                throw $this->ownership->violation('The canonical translation owner identity has changed.');
             }
         }
 
@@ -165,11 +166,11 @@ final readonly class RelatedTranslationStore
         foreach ($rows as $row) {
             if ($row::class !== $canonical::class || $row->getTable() !== $canonical->getTable()
                 || $row->getConnection() !== $canonical->getConnection()) {
-                throw new TenantBoundaryViolation('Loaded translations do not use canonical related storage.');
+                throw $this->ownership->violation('Loaded translations do not use canonical related storage.');
             }
             foreach ($identity as $column => $value) {
                 if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
-                    throw new TenantBoundaryViolation('Loaded translations do not belong to the canonical owner.');
+                    throw $this->ownership->violation('Loaded translations do not belong to the canonical owner.');
                 }
             }
         }
@@ -194,9 +195,18 @@ final readonly class RelatedTranslationStore
         if ($query->getModel()::class !== $canonical::class || $query->getModel()->getTable() !== $canonical->getTable()
             || $query->getQuery()->from !== $canonical->getTable()
             || $query->getQuery()->getConnection() !== $owner->getConnection()) {
-            throw new TenantBoundaryViolation('Translation relations require canonical owner storage.');
+            throw $this->ownership->violation('Translation relations require canonical owner storage.');
         }
-        $childResource = $this->resources->forModel($canonical);
+        $childResource = $this->legacy->forModel($canonical::class);
+        foreach ($this->resources->all() as $resource) {
+            if ($resource->model === $canonical::class) {
+                $childResource = $resource;
+                break;
+            }
+        }
+        if ($childResource === null) {
+            throw $this->ownership->violation('Related translation storage requires an explicit canonical resource.');
+        }
         $this->boundary->query($query, $childResource->key);
         $owners = $this->ownership->query(
             $owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class),
@@ -231,15 +241,17 @@ final readonly class RelatedTranslationStore
         try {
             return $relation->getQuery()->withSavepointIfNeeded(
                 function () use ($relation, $identity, $values): Model {
-                    $translation = $relation->make();
+                    return $this->ownership->create($relation->getRelated()::class, function (array $assignment) use ($relation, $identity, $values): Model {
+                        $translation = $relation->make();
 
-                    foreach ([...$values, ...$identity] as $field => $value) {
-                        $translation->setAttribute($field, $value);
-                    }
+                        foreach ([...$values, ...$identity, ...$assignment] as $field => $value) {
+                            $translation->setAttribute($field, $value);
+                        }
 
-                    $translation->saveOrFail();
+                        $translation->saveOrFail();
 
-                    return $translation;
+                        return $translation;
+                    });
                 },
             );
         } catch (UniqueConstraintViolationException $exception) {

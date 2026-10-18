@@ -307,6 +307,7 @@
             "file": "src/Events/TranslationResourceLocaleDeleted.php",
             "methods": [
                 "__construct",
+                "ownershipJobEnvelope",
                 "schemaVersion"
             ],
             "properties": [
@@ -326,6 +327,7 @@
             "file": "src/Events/TranslationResourceSynced.php",
             "methods": [
                 "__construct",
+                "ownershipJobEnvelope",
                 "schemaVersion"
             ],
             "properties": [

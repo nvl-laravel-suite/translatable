@@ -9,6 +9,8 @@ use Nvl\Data\Services\TypeScriptSourceRegistry;
 use Nvl\Support\Doctor\DoctorCheck;
 use Nvl\Support\Doctor\PackageDoctorContributor;
 use Nvl\Support\Globals\GlobalNames;
+use Nvl\Support\Ownership\Contracts\OwnershipIntegratedProvider;
+use Nvl\Support\Ownership\Services\OwnershipContextParticipants;
 use Nvl\Support\Providers\SupportServiceProvider;
 use Nvl\Support\Providers\TenantServiceProvider;
 use Nvl\Support\Traits\MergesPackageConfiguration;
@@ -22,6 +24,7 @@ use Nvl\Translatable\Contracts\DeleteTranslationResourceLocaleContract;
 use Nvl\Translatable\Contracts\SyncTranslationResourceContract;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
+use Nvl\Translatable\Ownership\TranslationContextParticipant;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\NullContentLocalePreferenceResolver;
 use Nvl\Translatable\Services\RelatedTranslationStore;
@@ -41,7 +44,7 @@ use Nvl\Translatable\Services\TranslationWriter;
 /**
  * Registers the shared translation runtime and its publishable package resources.
  */
-final class TranslatableServiceProvider extends ServiceProvider
+final class TranslatableServiceProvider extends ServiceProvider implements OwnershipIntegratedProvider
 {
     use MergesPackageConfiguration;
     use RegistersNamespacedResources;
@@ -106,6 +109,7 @@ final class TranslatableServiceProvider extends ServiceProvider
         TranslationResourceRegistry $resources,
         TypeScriptSourceRegistry $typeScriptSources,
     ): void {
+        $this->app->make(OwnershipContextParticipants::class)->register(TranslationContextParticipant::class);
         $this->app->make(GlobalNames::class)->translations('translatable', __DIR__.'/../../lang', $this->app->make('translation.loader'));
         $this->publishes([
             __DIR__.'/../../lang' => lang_path('vendor/nvl-translatable'),

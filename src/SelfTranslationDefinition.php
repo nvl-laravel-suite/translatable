@@ -59,7 +59,7 @@ final readonly class SelfTranslationDefinition extends TranslationDefinition
         $this->assertFieldsExclude([$this->groupKey]);
         $structuralColumns = array_map(
             mb_strtolower(...),
-            [$this->groupKey, $this->localeKey, 'tenant_id', 'ownership_key'],
+            [$this->groupKey, $this->localeKey, 'tenant_id', 'ownership_key', 'owner_scope_key', 'owner_reference'],
         );
 
         foreach ($this->sharedFields as $sharedField) {

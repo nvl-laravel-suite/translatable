@@ -9,7 +9,6 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\SelfTranslationDefinition;
@@ -149,13 +148,13 @@ final readonly class SelfTranslationStore
         $group = $owner->translationResourceKey();
         if ($identity !== []) {
             if ($owner->isDirty([$owner->getKeyName(), $definition->groupKey, $definition->localeKey, 'tenant_id', 'ownership_key'])) {
-                throw new TenantBoundaryViolation('Translation group identity cannot be changed in memory.');
+                throw $this->ownership->violation('Translation group identity cannot be changed in memory.');
             }
             $group = $owner->getConnection()->table($owner->getTable())
                 ->where($owner->getKeyName(), $owner->getRawOriginal($owner->getKeyName()))
                 ->value($definition->groupKey);
             if ($group !== $owner->getRawOriginal($definition->groupKey)) {
-                throw new TenantBoundaryViolation('The canonical translation group identity has changed.');
+                throw $this->ownership->violation('The canonical translation group identity has changed.');
             }
         }
         $identity[$definition->groupKey] = $group;
@@ -165,11 +164,11 @@ final readonly class SelfTranslationStore
                 foreach ($rows as $row) {
                     if ($row::class !== $owner::class || $row->getTable() !== $owner->getTable()
                         || $row->getConnection() !== $owner->getConnection()) {
-                        throw new TenantBoundaryViolation('Loaded translations do not use canonical group storage.');
+                        throw $this->ownership->violation('Loaded translations do not use canonical group storage.');
                     }
                     foreach ($identity as $column => $value) {
                         if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
-                            throw new TenantBoundaryViolation('Loaded translations do not belong to the canonical group.');
+                            throw $this->ownership->violation('Loaded translations do not belong to the canonical group.');
                         }
                     }
                 }
@@ -210,15 +209,17 @@ final readonly class SelfTranslationStore
         try {
             return $owner->newQuery()->withSavepointIfNeeded(
                 function () use ($owner, $identity, $values): Model {
-                    $translation = $owner->newInstance();
+                    return $this->ownership->create($owner::class, function (array $assignment) use ($owner, $identity, $values): Model {
+                        $translation = $owner->newInstance();
 
-                    foreach ([...$values, ...$identity] as $field => $value) {
-                        $translation->setAttribute($field, $value);
-                    }
+                        foreach ([...$values, ...$identity, ...$assignment] as $field => $value) {
+                            $translation->setAttribute($field, $value);
+                        }
 
-                    $translation->saveOrFail();
+                        $translation->saveOrFail();
 
-                    return $translation;
+                        return $translation;
+                    });
                 },
             );
         } catch (UniqueConstraintViolationException $exception) {

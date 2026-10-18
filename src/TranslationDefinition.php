@@ -41,7 +41,7 @@ abstract readonly class TranslationDefinition
     ) {
         $this->assertColumn($this->localeKey, 'locale');
         $this->assertColumns($this->fields, 'translated');
-        $this->assertFieldsExclude([$this->localeKey, 'tenant_id', 'ownership_key']);
+        $this->assertFieldsExclude([$this->localeKey, 'tenant_id', 'ownership_key', 'owner_scope_key', 'owner_reference']);
 
         if ($this->fields === []) {
             throw new TranslatableException('A translation definition must declare at least one translated field.');

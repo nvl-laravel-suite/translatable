@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Services;
 
+use Closure;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Ownership\Contracts\OwnershipContext;
+use Nvl\Support\Ownership\Enums\OwnershipContextMode;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
@@ -16,6 +19,7 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\TranslationDefinition;
+use Throwable;
 
 /**
  * Validates and persists translation maps through the model's declared storage strategy.
@@ -32,6 +36,7 @@ final readonly class TranslationWriter
         private RelatedTranslationStore $relatedStore,
         private SelfTranslationStore $selfStore,
         private TranslationPayloadValidator $payloadValidator,
+        private ?OwnershipContext $ownership = null,
     ) {}
 
     /**
@@ -44,22 +49,24 @@ final readonly class TranslationWriter
         string $locale,
         array $attributes,
     ): Model {
-        $this->assertPersistedResource($owner);
-        $definition = $owner->translationDefinition();
-        $this->payloadValidator->validate($definition, [$locale => $attributes]);
-        $normalizedLocale = $definition->assertLocale(
-            $this->locales->assertSupported($locale),
-        );
-        $this->assertDeclaredFields($definition, $attributes);
-        $translation = $this->storeUpsert(
-            $owner,
-            $definition,
-            $normalizedLocale,
-            $attributes,
-        );
-        $this->refreshLoadedTranslations($owner);
+        return $this->within($owner, function () use ($owner, $locale, $attributes): Model {
+            $this->assertPersistedResource($owner);
+            $definition = $owner->translationDefinition();
+            $this->payloadValidator->validate($definition, [$locale => $attributes]);
+            $normalizedLocale = $definition->assertLocale(
+                $this->locales->assertSupported($locale),
+            );
+            $this->assertDeclaredFields($definition, $attributes);
+            $translation = $this->storeUpsert(
+                $owner,
+                $definition,
+                $normalizedLocale,
+                $attributes,
+            );
+            $this->refreshLoadedTranslations($owner);
 
-        return $translation;
+            return $translation;
+        });
     }
 
     /**
@@ -72,21 +79,23 @@ final readonly class TranslationWriter
         Model&TranslatableResourceModel $owner,
         array $translations,
     ): Collection {
-        $normalizedTranslations = $this->normalizeTranslationMap($owner, $translations);
-        $written = new Collection;
+        return $this->within($owner, function () use ($owner, $translations): Collection {
+            $normalizedTranslations = $this->normalizeTranslationMap($owner, $translations);
+            $written = new Collection;
 
-        foreach ($normalizedTranslations as $locale => $attributes) {
-            $written->push($this->storeUpsert(
-                $owner,
-                $owner->translationDefinition(),
-                $locale,
-                $attributes,
-            ));
-        }
+            foreach ($normalizedTranslations as $locale => $attributes) {
+                $written->push($this->storeUpsert(
+                    $owner,
+                    $owner->translationDefinition(),
+                    $locale,
+                    $attributes,
+                ));
+            }
 
-        $this->refreshLoadedTranslations($owner);
+            $this->refreshLoadedTranslations($owner);
 
-        return $written;
+            return $written;
+        });
     }
 
     /**
@@ -99,22 +108,24 @@ final readonly class TranslationWriter
         Model&TranslatableResourceModel $owner,
         array $translations,
     ): Collection {
-        $normalizedTranslations = $this->normalizeTranslationMap($owner, $translations);
-        $written = new Collection;
+        return $this->within($owner, function () use ($owner, $translations): Collection {
+            $normalizedTranslations = $this->normalizeTranslationMap($owner, $translations);
+            $written = new Collection;
 
-        foreach ($normalizedTranslations as $locale => $attributes) {
-            $written->push($this->storeUpsert(
-                $owner,
-                $owner->translationDefinition(),
-                $locale,
-                $attributes,
-            ));
-        }
+            foreach ($normalizedTranslations as $locale => $attributes) {
+                $written->push($this->storeUpsert(
+                    $owner,
+                    $owner->translationDefinition(),
+                    $locale,
+                    $attributes,
+                ));
+            }
 
-        $this->deleteExcept($owner, array_keys($normalizedTranslations));
-        $this->refreshLoadedTranslations($owner);
+            $this->deleteExcept($owner, array_keys($normalizedTranslations));
+            $this->refreshLoadedTranslations($owner);
 
-        return $written;
+            return $written;
+        });
     }
 
     /**
@@ -141,30 +152,51 @@ final readonly class TranslationWriter
         Model&TranslatableResourceModel $owner,
         string $locale,
     ): bool {
-        $this->assertPersistedResource($owner);
-        $definition = $owner->translationDefinition();
-        $normalizedLocale = $definition->assertLocale(
-            $this->locales->assertSupported($locale),
-        );
-        $deleted = match (true) {
-            $owner instanceof TranslatableModel
-                && $definition instanceof RelatedTranslationDefinition => $this->relatedStore->delete(
-                    $owner,
-                    $definition,
-                    $normalizedLocale,
-                ),
-            $owner instanceof SelfTranslatableModel
-                && $definition instanceof SelfTranslationDefinition => $this->selfStore->delete(
-                    $owner,
-                    $definition,
-                    $normalizedLocale,
-                ),
-            default => throw new TranslatableException('The model and translation storage definition do not match.'),
-        };
+        return $this->within($owner, function () use ($owner, $locale): bool {
+            $this->assertPersistedResource($owner);
+            $definition = $owner->translationDefinition();
+            $normalizedLocale = $definition->assertLocale(
+                $this->locales->assertSupported($locale),
+            );
+            $deleted = match (true) {
+                $owner instanceof TranslatableModel
+                    && $definition instanceof RelatedTranslationDefinition => $this->relatedStore->delete(
+                        $owner,
+                        $definition,
+                        $normalizedLocale,
+                    ),
+                $owner instanceof SelfTranslatableModel
+                    && $definition instanceof SelfTranslationDefinition => $this->selfStore->delete(
+                        $owner,
+                        $definition,
+                        $normalizedLocale,
+                    ),
+                default => throw new TranslatableException('The model and translation storage definition do not match.'),
+            };
 
-        $this->refreshLoadedTranslations($owner);
+            $this->refreshLoadedTranslations($owner);
 
-        return $deleted;
+            return $deleted;
+        });
+    }
+
+    /** Keep each mutation atomic on its native source and discard loaded rows on rollback.
+     * @template T
+     *
+     * @param  Closure(): T  $operation
+     * @return T
+     */
+    private function within(Model&TranslatableResourceModel $owner, Closure $operation): mixed
+    {
+        if ($this->ownership === null || $this->ownership->snapshot()->mode === OwnershipContextMode::Disabled) {
+            return $operation();
+        }
+        try {
+            return $owner->getConnection()->transaction($operation);
+        } catch (Throwable $exception) {
+            $owner->unsetRelation('translations');
+            throw $exception;
+        }
     }
 
     /**
