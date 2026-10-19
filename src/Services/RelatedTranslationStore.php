@@ -150,6 +150,14 @@ final readonly class RelatedTranslationStore
         return [$definition->foreignKey($owner->getTable()) => $key, ...$attributes];
     }
 
+    /** @param array<int,Model> $owners
+     * @return list<array<string,mixed>>
+     */
+    public function eagerOwnerIdentities(array $owners, RelatedTranslationDefinition $definition): array
+    {
+        return $this->ownership->eagerOwnerIdentities($owners, $definition) ?? array_values(array_map(fn (Model $owner): array => $this->ownerIdentity($owner, $definition), $owners));
+    }
+
     /**
      * Validate all loaded children against one admitted canonical owner in memory.
      *

@@ -133,3 +133,11 @@ it('excludes technical ownership columns from translated and shared values', fun
     expect(fn () => new RelatedTranslationDefinition(OwnershipRelatedTranslation::class, [$column]))->toThrow(TranslatableException::class)
         ->and(fn () => new SelfTranslationDefinition('entry_key', ['name'], sharedFields: [$column]))->toThrow(TranslatableException::class);
 })->with(['owner_scope_key', 'owner_reference']);
+it('rejects dirty native primary owner fields in batched eager translation handles', function (): void {
+    app(OwnershipRunner::class)->run(OwnershipCompany::findOrFail(7), OwnershipActor::firstOrFail(), function (): void {
+        $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $a): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$a->attributes(), 'id' => 701]));
+        app(TranslationWriter::class)->upsert($record, 'en', ['name' => 'Private']);
+        $record->setAttribute('company_id', 8);
+        expect(fn () => (new OwnershipRelatedRecord)->newCollection([$record])->load('translations'))->toThrow(OwnershipViolation::class);
+    });
+});

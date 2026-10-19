@@ -78,10 +78,7 @@ final class TranslationRelationBuilder extends Builder
             || ! $this->translationDefinition instanceof RelatedTranslationDefinition) {
             throw new LogicException('Translation relation ownership is not configured.');
         }
-        $this->translationOwnerIdentities = [];
-        foreach ($owners as $owner) {
-            $this->translationOwnerIdentities[] = $this->translationStore->ownerIdentity($owner, $this->translationDefinition);
-        }
+        $this->translationOwnerIdentities = $this->translationStore->eagerOwnerIdentities($owners, $this->translationDefinition);
 
         return $this;
     }

@@ -20,6 +20,7 @@ use Nvl\Support\Ownership\Contracts\OwnershipWriter;
 use Nvl\Support\Ownership\Enums\OwnershipContextMode;
 use Nvl\Support\Ownership\Exceptions\OwnershipConfigurationInvalid;
 use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
+use Nvl\Support\Ownership\Services\OwnershipIdentityFields;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Support\Ownership\Services\PersistedOwnershipStorage;
 use Nvl\Support\Ownership\ValueObjects\OwnerReference;
@@ -28,7 +29,11 @@ use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Tenancy\LegacyTranslationOwnership;
 use Nvl\Translatable\TranslationDefinition;
 
-/** Connects translation operations to exact model-declared primary ownership. @internal */
+/**
+ * Connects translation operations to exact model-declared primary ownership.
+ *
+ * @internal
+ */
 final readonly class TranslationOwnership
 {
     /** Return the selected authority's existing presentation contract. */
@@ -38,7 +43,15 @@ final readonly class TranslationOwnership
     }
 
     /** Keep the existing V1 authority isolated in its explicit compatibility adapter. */
-    public function __construct(private OwnershipBoundary $boundary, private OwnershipContext $context, private OwnershipResourceRegistry $resources, private OwnershipReadiness $readiness, private LegacyTranslationOwnership $legacy, private PersistedOwnershipStorage $storage, private OwnershipWriter $writer) {}
+    public function __construct(
+        private OwnershipBoundary $boundary,
+        private OwnershipContext $context,
+        private OwnershipResourceRegistry $resources,
+        private OwnershipReadiness $readiness,
+        private LegacyTranslationOwnership $legacy,
+        private PersistedOwnershipStorage $storage,
+        private OwnershipWriter $writer,
+    ) {}
 
     /** Coordinate every owned new locale row through its exact registered primary assignment.
      * @template T of Model
@@ -144,6 +157,45 @@ final readonly class TranslationOwnership
         $this->assertOwner($persisted, $definition);
 
         return $persisted;
+    }
+
+    /** Reload all eager owners in one admitted canonical query without caching authority.
+     * @param  array<int,Model>  $owners
+     * @return list<array<string,mixed>>|null
+     */
+    public function eagerOwnerIdentities(array $owners, RelatedTranslationDefinition $definition): ?array
+    {
+        if ($this->disabled() || $definition->ownershipResource === null || $this->resources->get($definition->ownershipResource)->ownership->strategy === 'unscoped') {
+            return null;
+        }
+        $resource = $this->resources->get($definition->ownershipResource);
+        $canonical = new $resource->model;
+        $fields = [...((new OwnershipIdentityFields)->forResource($resource)), $definition->ownerKey];
+        $keys = [];
+        foreach ($owners as $owner) {
+            $key = $owner->getRawOriginal($canonical->getKeyName());
+            if ($owner::class !== $canonical::class || ! $owner->exists || $owner->getTable() !== $canonical->getTable() || $owner->getConnection() !== $canonical->getConnection() || (! is_string($key) && ! is_int($key)) || $owner->isDirty($fields)) {
+                throw new OwnershipViolation('Eager translations require unchanged canonical owner identities.');
+            }
+            $keys[] = $key;
+        }
+        $query = $canonical->newQuery()->withoutGlobalScope(SoftDeletingScope::class)->useWritePdo()->whereKey($keys);
+        $fresh = $this->boundary->query($query, $resource->key)->get()->keyBy($canonical->getKeyName());
+        $identities = [];
+        foreach (array_values($owners) as $index => $owner) {
+            $row = $fresh->get($keys[$index]);
+            if (! $row instanceof Model || $row->getRawOriginal($definition->ownerKey) !== $owner->getRawOriginal($definition->ownerKey) || $row->getRawOriginal('owner_scope_key') !== $owner->getRawOriginal('owner_scope_key')) {
+                throw new OwnershipViolation('An eager translation owner is stale or outside the active boundary.');
+            }
+            foreach ($fields as $field) {
+                if (! $this->sameIdentity($field, $row->getRawOriginal($field), $owner->getRawOriginal($field))) {
+                    throw new OwnershipViolation('Eager translation ownership facts are stale.');
+                }
+            }
+            $identities[] = [$definition->foreignKey($canonical->getTable()) => $row->getRawOriginal($definition->ownerKey), 'owner_scope_key' => $row->getRawOriginal('owner_scope_key')];
+        }
+
+        return $identities;
     }
 
     /** @return array<string, int|string|null> */
