@@ -4,12 +4,16 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Tests;
 
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Application;
-use Nvl\Data\Providers\DataServiceProvider;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Providers\LocaleServiceProvider;
-use Nvl\Tenancy\Providers\TenancyServiceProvider;
+use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
+use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
+use Nvl\Translatable\TranslationResourceDefinition;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 /**
@@ -34,6 +38,14 @@ abstract class TestCase extends Orchestra
     {
         parent::setUp();
 
+        $this->app->bind(TranslationResourceAuthorizer::class, static fn () => new class implements TranslationResourceAuthorizer
+        {
+            public function allows(Authenticatable|SystemActor $actor, TranslationResourceAbility $ability, TranslationResourceDefinition $resource, ?Model $record = null): bool
+            {
+                return $actor === SystemActor::Background;
+            }
+        });
+
         $this->setUpDatabase($this->app);
     }
 
@@ -47,8 +59,6 @@ abstract class TestCase extends Orchestra
     {
         return [
             LocaleServiceProvider::class,
-            DataServiceProvider::class,
-            ...(class_exists(TenancyServiceProvider::class) ? [TenancyServiceProvider::class] : []),
             TranslatableServiceProvider::class,
         ];
     }

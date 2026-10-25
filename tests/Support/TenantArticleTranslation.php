@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Nvl\Support\Ownership\Contracts\Ownable;
+use Nvl\Support\Ownership\Traits\HasOwnership;
+use Nvl\Support\Ownership\ValueObjects\OwnershipDefinition;
 
 /**
  * Stores a fixture article's localized content under its canonical parent.
@@ -20,9 +23,15 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at Creation time.
  * @property Carbon|null $updated_at Update time.
  */
-final class TenantArticleTranslation extends Model
+final class TenantArticleTranslation extends Model implements Ownable
 {
+    use HasOwnership;
     use HasUuids;
+
+    public static function ownershipDefinition(): OwnershipDefinition
+    {
+        return OwnershipDefinition::inherited('article');
+    }
 
     protected $table = 'tenant_test_article_translations';
 

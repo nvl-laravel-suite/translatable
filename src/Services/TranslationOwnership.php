@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Services;
 
 use Closure;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
-use Nvl\Support\Exceptions\BusinessException;
 use Nvl\Support\Ownership\Contracts\Ownable;
 use Nvl\Support\Ownership\Contracts\OwnershipBoundary;
 use Nvl\Support\Ownership\Contracts\OwnershipContext;
@@ -24,10 +24,11 @@ use Nvl\Support\Ownership\Services\OwnershipIdentityFields;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Support\Ownership\Services\PersistedOwnershipStorage;
 use Nvl\Support\Ownership\ValueObjects\OwnerReference;
+use Nvl\Support\Ownership\ValueObjects\OwnershipSnapshot;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
-use Nvl\Translatable\Tenancy\LegacyTranslationOwnership;
 use Nvl\Translatable\TranslationDefinition;
+use WeakMap;
 
 /**
  * Connects translation operations to exact model-declared primary ownership.
@@ -36,22 +37,26 @@ use Nvl\Translatable\TranslationDefinition;
  */
 final readonly class TranslationOwnership
 {
-    /** Return the selected authority's existing presentation contract. */
-    public function violation(string $message): BusinessException
+    /** @var WeakMap<Model, array{context: OwnershipSnapshot, definition: TranslationDefinition, key: int|string, connection: Connection, table: string}> */
+    private WeakMap $admittedOwners;
+
+    /** Return the native ownership failure for an invalid translation boundary. */
+    public function violation(string $message): OwnershipViolation
     {
-        return $this->disabled() ? $this->legacy->violation($message) : new OwnershipViolation($message);
+        return new OwnershipViolation($message);
     }
 
-    /** Keep the existing V1 authority isolated in its explicit compatibility adapter. */
+    /** Use the Core-owned inert contracts until the optional Ownership runtime is installed. */
     public function __construct(
         private OwnershipBoundary $boundary,
         private OwnershipContext $context,
         private OwnershipResourceRegistry $resources,
         private OwnershipReadiness $readiness,
-        private LegacyTranslationOwnership $legacy,
         private PersistedOwnershipStorage $storage,
         private OwnershipWriter $writer,
-    ) {}
+    ) {
+        $this->admittedOwners = new WeakMap;
+    }
 
     /** Coordinate every owned new locale row through its exact registered primary assignment.
      * @template T of Model
@@ -79,9 +84,6 @@ final readonly class TranslationOwnership
      */
     public function query(Builder $query, TranslationDefinition $definition): Builder
     {
-        if ($this->disabled()) {
-            return $this->legacy->query($query, $definition);
-        }
         if ($definition->ownershipResource === null) {
             $this->assertUnowned($query->getModel());
 
@@ -94,9 +96,7 @@ final readonly class TranslationOwnership
     /** Admit persisted ownership even for previously loaded translation state. */
     public function assertOwner(Model $owner, TranslationDefinition $definition): void
     {
-        if ($this->disabled()) {
-            $this->legacy->assertOwner($owner, $definition);
-        } elseif ($definition->ownershipResource === null) {
+        if ($definition->ownershipResource === null) {
             $this->assertUnowned($owner);
         } else {
             $this->boundary->assertRecord($owner, $definition->ownershipResource);
@@ -106,9 +106,6 @@ final readonly class TranslationOwnership
     /** Reload immutable structural facts under their actual source transaction lock. */
     public function lockOwner(Model $owner, TranslationDefinition $definition): Model
     {
-        if ($this->disabled()) {
-            return $this->legacy->lockOwner($owner, $definition);
-        }
         $this->assertOwner($owner, $definition);
         if ($owner->getConnection()->transactionLevel() < 1) {
             throw new OwnershipViolation('Translation writes require their actual source transaction.');
@@ -165,7 +162,34 @@ final readonly class TranslationOwnership
      */
     public function eagerOwnerIdentities(array $owners, RelatedTranslationDefinition $definition): ?array
     {
-        if ($this->disabled() || $definition->ownershipResource === null || $this->resources->get($definition->ownershipResource)->ownership->strategy === 'unscoped') {
+        if ($definition->ownershipResource === null) {
+            if ($owners === []) {
+                return [];
+            }
+            $this->assertUnowned($owners[0]);
+            $canonical = $owners[0];
+            $identities = [];
+            foreach ($owners as $owner) {
+                $key = $owner->getRawOriginal($definition->ownerKey);
+                if ($owner::class !== $canonical::class || $owner->getTable() !== $canonical->getTable()
+                    || $owner->getConnection() !== $canonical->getConnection() || ! $owner->exists
+                    || (! is_int($key) && ! is_string($key))
+                    || $owner->isDirty([$owner->getKeyName(), $definition->ownerKey])) {
+                    throw new OwnershipViolation('Eager translations require unchanged canonical owner identities.');
+                }
+                $this->admittedOwners[$owner] = [
+                    'context' => $this->context->snapshot(),
+                    'definition' => $definition,
+                    'key' => $key,
+                    'connection' => $owner->getConnection(),
+                    'table' => $owner->getTable(),
+                ];
+                $identities[] = [$definition->foreignKey($owner->getTable()) => $key];
+            }
+
+            return $identities;
+        }
+        if ($this->disabled() || $this->resources->get($definition->ownershipResource)->ownership->strategy === 'unscoped') {
             return null;
         }
         $resource = $this->resources->get($definition->ownershipResource);
@@ -198,12 +222,29 @@ final readonly class TranslationOwnership
         return $identities;
     }
 
+    /** Reuse only an unchanged eager owner admitted in the same scoped operation.
+     * @return array<string, int|string>|null
+     */
+    public function admittedOwnerIdentity(Model $owner, RelatedTranslationDefinition $definition): ?array
+    {
+        $admitted = $this->admittedOwners[$owner] ?? null;
+        if ($admitted === null || $admitted['definition'] != $definition
+            || ($admitted['context']->mode === OwnershipContextMode::Disabled
+                ? $admitted['context'] != $this->context->snapshot()
+                : $admitted['context'] !== $this->context->snapshot())
+            || $admitted['connection'] !== $owner->getConnection()
+            || $admitted['table'] !== $owner->getTable()
+            || $admitted['key'] !== $owner->getRawOriginal($definition->ownerKey)
+            || $owner->isDirty([$owner->getKeyName(), $definition->ownerKey])) {
+            return null;
+        }
+
+        return [$definition->foreignKey($owner->getTable()) => $admitted['key']];
+    }
+
     /** @return array<string, int|string|null> */
     public function childAttributes(Model $owner, TranslationDefinition $definition): array
     {
-        if ($this->disabled()) {
-            return $this->legacy->childAttributes($owner, $definition);
-        }
         $this->assertOwner($owner, $definition);
         if ($this->partitionColumns($definition) === []) {
             return [];
@@ -224,13 +265,22 @@ final readonly class TranslationOwnership
      */
     public function partitionColumns(TranslationDefinition $definition): array
     {
-        if ($this->disabled()) {
-            return $this->legacy->partitionColumns($definition);
+        $columns = $this->declaredPartitionColumns($definition);
+        if ($columns !== []) {
+            $this->readiness->assertActive($definition->ownershipResource ?? throw new OwnershipConfigurationInvalid);
         }
+
+        return $columns;
+    }
+
+    /** Read immutable partition metadata before a separately admitted canonical query.
+     * @return list<string>
+     */
+    public function declaredPartitionColumns(TranslationDefinition $definition): array
+    {
         if ($definition->ownershipResource === null || $this->resources->get($definition->ownershipResource)->ownership->strategy === 'unscoped') {
             return [];
         }
-        $this->readiness->assertActive($definition->ownershipResource);
 
         return ['owner_scope_key'];
     }
@@ -238,18 +288,48 @@ final readonly class TranslationOwnership
     /** Include admitted generations in translation cache and logical-group identities. */
     public function partitionKey(Model $owner, TranslationDefinition $definition): string
     {
-        if ($this->disabled()) {
-            return $this->legacy->partitionKey($owner, $definition);
-        }
         $attributes = $this->childAttributes($owner, $definition);
+
+        return $this->partitionKeyFromAdmitted($owner, $definition, $attributes);
+    }
+
+    /** Derive a logical identity from owners already admitted by one canonical batch query.
+     * @param  array<string, int|string|null>  $attributes
+     */
+    public function partitionKeyFromAdmitted(Model $owner, TranslationDefinition $definition, array $attributes): string
+    {
         $column = match (true) {
             $definition instanceof SelfTranslationDefinition => $definition->groupKey,
             $definition instanceof RelatedTranslationDefinition => $definition->ownerKey,
             default => $owner->getKeyName(),
         };
-        $identity = hash('sha256', json_encode([$owner->getConnection()->getName(), $owner->getTable(), $attributes, $owner->getRawOriginal($column)], JSON_THROW_ON_ERROR));
+        $snapshot = $this->context->snapshot();
 
-        return $definition->ownershipResource === null ? $identity : $this->boundary->key($definition->ownershipResource, $identity);
+        return hash('sha256', json_encode([
+            $definition->ownershipResource, $owner->getConnection()->getName(), $owner->getTable(),
+            $attributes, $owner->getRawOriginal($column),
+            $snapshot->owner?->toArray(), $snapshot->generations,
+        ], JSON_THROW_ON_ERROR));
+    }
+
+    /** Resolve shared self-row assignment once for a canonical page.
+     * @return array<string, int|string|null>
+     */
+    public function batchSelfAttributes(SelfTranslationDefinition $definition): array
+    {
+        if ($definition->ownershipResource === null || $this->declaredPartitionColumns($definition) === []) {
+            return [];
+        }
+        $snapshot = $this->context->snapshot();
+        $resource = $this->resources->get($definition->ownershipResource);
+        $attributes = ['owner_scope_key' => $snapshot->owner?->scopeKey() ?? 'central'];
+        if ($resource->ownership->strategy === 'column') {
+            $attributes[$resource->ownership->foreignKey ?? throw new OwnershipConfigurationInvalid] = $snapshot->owner?->key;
+        } elseif ($resource->ownership->strategy === 'captured') {
+            $attributes['owner_reference'] = $snapshot->owner === null ? null : json_encode($snapshot->owner->toArray(), JSON_THROW_ON_ERROR);
+        }
+
+        return $attributes;
     }
 
     /** Preserve unowned models without interpreting claimed physical storage as global. */

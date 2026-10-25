@@ -1,51 +1,11 @@
-# Security Policy
+# Security policy and translation admission
 
-Submit reports through [this package's private vulnerability reporting form](https://github.com/nvl-laravel-suite/translatable/security/advisories/new).
+Report suspected cross-owner reads or writes, stale-version acceptance, forged resource selection, worker context leakage, and unsafe locale payloads through the repository's private security reporting channel. Include the resource key, actor, owner scope, expected and observed revision, storage strategy, and a minimal reproduction.
 
-Security fixes are provided for the published `5.x` release line and the `6.x` line once published. Prepared 6.0.0 source does not establish release certification. Enabled Ownership requires Laravel 13; disabled/unowned hosts keep the declared framework range. Composer declares PHP `^8.4` and Laravel `^12.0|^13.0`. The local Dagger release gate verifies PHP 8.4/Laravel 13 with MySQL 8.4 and PostgreSQL 17 persistence contracts; PHP 8.5, Laravel 12 and MariaDB require separate compatibility evidence. Upstream security lifecycle limits still apply.
+TranslationWriter::sync() and deleteLocale() are the public translation-management mutations. They require a registered concrete model, a persisted ordinary actor or explicitly authorized SystemActor, and a caller-supplied current revision. They lock and re-read canonical storage inside the model connection's transaction, apply the exact resource policy and query scope, reject stale writes, and dispatch events after commit. The default TranslationResourceAuthorizer denies access.
 
-Report vulnerabilities privately through the repository host's
-security-advisory feature. Include resource key, actor, scope, locale, version
-hash, operation, and impact without personal translated content.
+Never treat a client-supplied actor or system marker as authority. Resolve ordinary actors from trusted authentication and require a real persisted identifier. SystemActor is a background capability only when the host policy authorizes that enum value and operation. When a model has multiple registrations, the explicit key must still match the model and every storage and scope guard.
 
-Registry definitions must whitelist fields, search/display columns, and
-visibility scopes. Authorize every gather and mutation, bound bulk operations,
-reject stale writes, and clear locale state between requests and jobs. Keep
-tenant and ownership restrictions inside the registered query scope so reads
-and locked mutations resolve the same visible resource.
+Native Ownership is optional for unowned resources. Protected resources require exact registry declarations, completed adoption, live owner and store generations, and active owner/central admission. A raw owner column, queue envelope, model relation, or query result does not grant scope. Related rows must match their canonical parent; grouped self rows must remain in their logical owner partition. Context and ContentLocale are restored after worker callbacks, including failures.
 
-Related owner and translation models must use the same database connection.
-Self-translated resources must use a stable group key. Enforce a database
-unique constraint on `(owner_key, locale)` or `(group_key, locale)` so
-concurrent locale creation cannot duplicate rows.
-
-Use `SyncTranslationResourceAction` and
-`DeleteTranslationResourceLocaleAction` for centralized writes. They lock the
-logical resource, require an expected version, use the declared connection,
-retry deadlocks, authorize before exposing mutation policy, and dispatch
-events after commit. Direct `TranslationWriter` callers must provide their own
-transaction on the model's connection.
-
-Never hydrate `TranslationActorData` from client-controlled input and trust
-its `system` flag. Applications must derive actor identity and trust on the
-server before calling registry services.
-
-Use `TranslationMutationPolicy::DomainActionOnly` when generic persistence
-would bypass domain validation, related-record synchronization, activity, or
-domain events. A stable resource key is an identifier, not an authorization
-boundary.
-
-Self-row group and locale columns are immutable through Eloquent model saves,
-including saves with muted events or later event-listener mutations. Avoid
-mass updates that bypass model instances; use the package writer, convenience
-mutation methods, or registered actions. Keep Eloquent-managed primary keys,
-timestamps, and soft-delete columns outside translated and shared fields.
-
-Persist only canonical normalized locale values. Validate locale-keyed HTTP
-input with `SupportedLocaleMapRule`; the writer then enforces declared fields
-and configured payload count, depth, and byte limits. Do not log translated
-payloads when they may contain personal or confidential content.
-
-Run `php artisan nvl:translatable:doctor` during deployment checks. Treat
-cross-connection definitions, missing columns or unique indexes, unsupported
-locales, and invalid mutation limits as deployment blockers.
+Only the owning domain service may mutate an OwningServiceOnly resource. Model cast staging and storage hooks remain available within that authorized workflow. Raw SQL and bulk query writes bypass model hooks and require separate host review. Use SupportedLocaleMapRule for early input errors; the writer remains the final validator of locales, declared fields, payload size, omission, and explicit null.

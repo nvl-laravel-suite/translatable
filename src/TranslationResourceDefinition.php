@@ -5,13 +5,14 @@ declare(strict_types=1);
 namespace Nvl\Translatable;
 
 use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
-use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 
@@ -28,7 +29,7 @@ final readonly class TranslationResourceDefinition
      * @param  class-string  $modelClass
      * @param  list<string>  $searchableColumns
      * @param  list<string>  $displayColumns
-     * @param  (Closure(TranslationActorData, TranslationResourceAbility, ?Model): bool)|null  $authorization
+     * @param  (Closure(Authenticatable|SystemActor, TranslationResourceAbility, ?Model): bool)|null  $authorization
      * @param  (Closure(Builder<Model>): Builder<Model>)|null  $queryScope
      */
     public function __construct(
@@ -110,7 +111,7 @@ final readonly class TranslationResourceDefinition
      * Return a resource-specific authorization decision when configured.
      */
     public function authorize(
-        TranslationActorData $actor,
+        Authenticatable|SystemActor $actor,
         TranslationResourceAbility $ability,
         ?Model $record,
     ): ?bool {

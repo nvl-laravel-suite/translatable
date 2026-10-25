@@ -6,64 +6,61 @@ namespace Nvl\Translatable\Tests\Support;
 
 use Closure;
 use Illuminate\Contracts\Foundation\MaintenanceMode;
-use Nvl\Support\Tenancy\Contracts\TenantDirectory;
-use Nvl\Support\Tenancy\Enums\TenantResourceKind;
-use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
-use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Support\Tenancy\ValueObjects\TenantId;
-use Nvl\Support\Tenancy\ValueObjects\TenantResourceDefinition;
-use Nvl\Tenancy\Services\TenantAdoptionCoordinator;
-use Nvl\Tenancy\Services\TenantAdoptionRegistry;
-use Nvl\Tenancy\Services\TenantBoundary;
-use Nvl\Tenancy\Services\TenantRunner;
+use Illuminate\Database\Schema\Blueprint;
+use Nvl\Ownership\Services\OwnershipAdoptionCoordinator;
+use Nvl\Ownership\Services\OwnershipAdoptionRegistry;
+use Nvl\Ownership\Services\OwnershipRunner;
+use Nvl\Ownership\Services\OwnershipSchema;
+use Nvl\Ownership\Services\OwnershipWriter;
+use Nvl\Ownership\ValueObjects\OwnershipAssignment;
+use Nvl\Ownership\ValueObjects\OwnershipOperation;
+use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
+use Nvl\Support\Ownership\ValueObjects\OwnershipResourceDefinition;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
-use Nvl\Translatable\Tests\Fixtures\TenantTranslationFixtureDirectory;
 
-/** Installs and seeds real adopted storage through the public tenant lifecycle. */
+/** Installs real native owner storage and admits each fixture operation through Ownership. */
 final class TenantTranslationScenario
 {
     public const string A = '00000000-0000-4000-8000-00000000000a';
 
     public const string B = '00000000-0000-4000-8000-00000000000b';
 
-    /** Retain the explicit fixture connection for seeded model instances. */
     private function __construct(private readonly ?string $connection = null) {}
 
-    /** Adopt the three explicit fixture resources before any tenant read. */
-    public static function install(bool $mixedEntries = false, ?string $connection = null): self
+    public static function install(bool $mixedEntries = false, ?string $connection = null, array $adoptionPackages = []): self
     {
-        $database = app('db');
         if ($connection !== null) {
-            $database->setDefaultConnection($connection);
+            app('db')->setDefaultConnection($connection);
+            $schema = app('db')->connection($connection)->getSchemaBuilder();
+            if (! $schema->hasTable('tenant_test_owners')) {
+                $schema->create('tenant_test_owners', static fn (Blueprint $table) => $table->uuid('id')->primary());
+                app('db')->connection($connection)->table('tenant_test_owners')->insert([['id' => self::A], ['id' => self::B]]);
+            }
+            if (! $schema->hasTable('translation_ownership_actors')) {
+                $schema->create('translation_ownership_actors', static fn (Blueprint $table) => $table->unsignedBigInteger('id')->primary());
+                app('db')->connection($connection)->table('translation_ownership_actors')->insert(['id' => 1]);
+            }
+            if (! $schema->hasTable('nvl_ownership_stores')) {
+                (require __DIR__.'/../../../ownership/database/migrations/ownership/2026_10_18_000001_nvl_ownership_create_adoption_tables.php')->up();
+            }
         }
-        config([
-            'nvl-tenancy.enabled' => true,
-            'nvl-tenancy.connection' => $connection,
-        ]);
-        if ($connection !== null
-            && ! app('db')->connection($connection)->getSchemaBuilder()->hasTable('nvl_tenancy_operations')) {
-            $migration = require dirname(__DIR__, 3).'/tenancy/database/migrations/tenancy/2026_09_16_000001_nvl_tenancy_create_tenancy_core_tables.php';
-            $migration->up();
-        }
-        app()->instance(TenantDirectory::class, new TenantTranslationFixtureDirectory);
-        $resources = app(TenantResourceRegistry::class);
-        $resources->register(new TenantResourceDefinition(
-            'test.entries',
-            'test',
-            TenantSelfEntry::class,
-            allowsPlatformCatalog: $mixedEntries,
-            allowsPlatformRows: $mixedEntries,
+        $resources = app(OwnershipResourceRegistry::class);
+        $resources->register(new OwnershipResourceDefinition(
+            'test.entries', 'test', TenantSelfEntry::class, TenantSelfEntry::ownershipDefinition(),
+            allowsCentral: $mixedEntries, immutableFields: ['entry_key', 'locale'],
         ));
-        $resources->register(new TenantResourceDefinition('test.articles', 'test-articles', TenantArticle::class));
-        $resources->register(new TenantResourceDefinition(
-            'test.article-translations', 'test-articles', TenantArticleTranslation::class,
-            TenantResourceKind::Inherited, 'test.articles', 'article',
+        $resources->register(new OwnershipResourceDefinition(
+            'test.articles', 'test', TenantArticle::class, TenantArticle::ownershipDefinition(),
         ));
-        app()->instance(TenantTranslationFixtureAdoptionAdapter::class, new TenantTranslationFixtureAdoptionAdapter($mixedEntries));
-        app(TenantAdoptionRegistry::class)->register('translation-fixtures', TenantTranslationFixtureAdoptionAdapter::class);
-        $operation = new PlatformOperation('fixture.adoption', 'test', 'fixture');
-        $coordinator = app(TenantAdoptionCoordinator::class);
-        $plan = $coordinator->prepare(['translation-fixtures'], [], $operation);
+        $resources->register(new OwnershipResourceDefinition(
+            'test.article-translations', 'test', TenantArticleTranslation::class,
+            TenantArticleTranslation::ownershipDefinition(), parentResource: 'test.articles',
+        ));
+        app()->instance(TenantTranslationFixtureAdoptionAdapter::class, new TenantTranslationFixtureAdoptionAdapter(app(OwnershipSchema::class), $mixedEntries));
+        app(OwnershipAdoptionRegistry::class)->register('translation-fixtures', TenantTranslationFixtureAdoptionAdapter::class);
+        $operation = new OwnershipOperation('fixture.adoption', 'test', 'fixture');
+        $coordinator = app(OwnershipAdoptionCoordinator::class);
+        $plan = $coordinator->prepare(['translation-fixtures', ...$adoptionPackages], [], $operation);
         $done = false;
         for ($batch = 0; $batch < 20 && ! $done; $batch++) {
             $done = $coordinator->backfill($plan, 100, $operation);
@@ -73,68 +70,64 @@ final class TenantTranslationScenario
         $coordinator->activate($plan, $operation);
         app(MaintenanceMode::class)->deactivate();
         app(TranslationResourceRegistry::class)->register(
-            key: 'test.entries',
-            modelClass: TenantSelfEntry::class,
-            label: 'Entries',
-            searchableColumns: ['name'],
-            displayColumns: ['name'],
+            key: 'test.entries', modelClass: TenantSelfEntry::class, label: 'Entries',
+            searchableColumns: ['name'], displayColumns: ['name'],
         );
         app(TranslationResourceRegistry::class)->register(
-            key: 'test.articles',
-            modelClass: TenantArticle::class,
-            label: 'Articles',
-            searchableColumns: ['slug'],
-            displayColumns: ['slug'],
+            key: 'test.articles', modelClass: TenantArticle::class, label: 'Articles',
+            searchableColumns: ['slug'], displayColumns: ['slug'],
         );
 
         return new self($connection);
     }
 
-    /**
-     * Run one operation in a restored tenant context.
-     *
-     * @template T
-     *
-     * @param  Closure(): T  $callback
-     * @return T
-     */
+    /** @template T @param Closure(): T $callback @return T */
     public function run(string $id, Closure $callback): mixed
     {
-        return app(TenantRunner::class)->run(new TenantId($id), $callback);
+        return app(OwnershipRunner::class)->run(TenantTranslationOwner::findOrFail($id), OwnershipActor::firstOrFail(), $callback);
     }
 
-    /** Persist a grouped fixture row with server-derived ownership. */
     public function entry(string $tenant, string $group, string $locale, string $name): TenantSelfEntry
     {
         return $this->run($tenant, function () use ($group, $locale, $name): TenantSelfEntry {
-            $entry = new TenantSelfEntry(['entry_key' => $group, 'locale' => $locale, 'name' => $name]);
-            $entry->setConnection($this->connection);
-            $entry->forceFill(app(TenantBoundary::class)->attributes('test.entries'));
-            $entry->save();
+            return app(OwnershipWriter::class)->create(TenantSelfEntry::class, function (OwnershipAssignment $assignment) use ($group, $locale, $name): TenantSelfEntry {
+                $entry = new TenantSelfEntry(['entry_key' => $group, 'locale' => $locale, 'name' => $name]);
+                $entry->setConnection($this->connection);
+                $entry->forceFill($assignment->attributes());
+                $entry->save();
 
-            return $entry;
+                return $entry;
+            });
         });
     }
 
-    /**
-     * Seed an existing article independently of the translation mutation runtime.
-     *
-     * @param  array<string, array{name: string}>  $translations
-     */
+    /** @param array<string, array{name: string}> $translations */
     public function article(string $tenant, string $slug, array $translations): TenantArticle
     {
-        return $this->run($tenant, function () use ($tenant, $slug, $translations): TenantArticle {
-            $article = new TenantArticle(['slug' => $slug]);
-            $article->setConnection($this->connection);
+        return $this->run($tenant, function () use ($slug, $translations): TenantArticle {
+            $article = app(OwnershipWriter::class)->create(TenantArticle::class, function (OwnershipAssignment $assignment) use ($slug): TenantArticle {
+                $record = new TenantArticle(['slug' => $slug]);
+                $record->setConnection($this->connection);
+                $record->forceFill($assignment->attributes());
+                $record->save();
 
-            return $article->getConnection()->transaction(function () use ($tenant, $article, $translations): TenantArticle {
-                $article->forceFill(app(TenantBoundary::class)->attributes('test.articles'));
-                $article->save();
+                return $record;
+            });
+
+            return $article->getConnection()->transaction(function () use ($article, $translations): TenantArticle {
                 foreach ($translations as $locale => $attributes) {
-                    $translation = new TenantArticleTranslation;
-                    $translation->setConnection($this->connection);
-                    $translation->forceFill(['tenant_id' => $tenant, 'article_id' => $article->getKey(), 'locale' => $locale, 'name' => $attributes['name']]);
-                    $translation->save();
+                    app(OwnershipWriter::class)->create(TenantArticleTranslation::class, function (OwnershipAssignment $assignment) use ($article, $locale, $attributes): TenantArticleTranslation {
+                        $translation = new TenantArticleTranslation;
+                        $translation->setConnection($this->connection);
+                        $translation->forceFill([
+                            ...$assignment->attributes(), 'tenant_id' => $article->tenant_id,
+                            'article_id' => $article->getKey(), 'locale' => $locale,
+                            'name' => $attributes['name'],
+                        ]);
+                        $translation->save();
+
+                        return $translation;
+                    });
                 }
 
                 return $article;

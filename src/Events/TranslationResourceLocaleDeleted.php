@@ -9,7 +9,6 @@ use Nvl\Support\Contracts\DomainEvent;
 use Nvl\Support\Ownership\Contracts\OwnershipContext;
 use Nvl\Support\Ownership\Contracts\OwnershipQueuedJob;
 use Nvl\Support\Ownership\ValueObjects\OwnershipJobEnvelope;
-use Nvl\Translatable\Data\TranslationActorData;
 
 /**
  * Announces a committed locale-row deletion from a registered translation resource.
@@ -28,7 +27,8 @@ final readonly class TranslationResourceLocaleDeleted implements DomainEvent, Ow
         public string $ownerType,
         public int|string $ownerId,
         public string $locale,
-        public TranslationActorData $actor,
+        public string $actorType,
+        public int|string $actorId,
         public string $previousVersion,
         public string $version,
         public int $schemaVersion = 1,

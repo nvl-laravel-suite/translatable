@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Nvl\Data\Services\TypeScriptSourceRegistry;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\OwnerRegistry;
-use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\Locale;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
@@ -22,6 +25,7 @@ use Nvl\Translatable\Services\LocaleRegistry;
 use Nvl\Translatable\Services\TranslationDoctor;
 use Nvl\Translatable\Services\TranslationPayloadValidator;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
+use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
@@ -37,7 +41,6 @@ test('configured resources fail explicitly for every malformed serializable opti
 
     expect(fn () => (new TranslatableServiceProvider(app()))->boot(
         new TranslationResourceRegistry(app(OwnerRegistry::class)),
-        app(TypeScriptSourceRegistry::class),
     ))->toThrow(TranslationResourceException::class, $message);
 })->with([
     'resource catalog' => ['invalid', 'must be an array'],
@@ -98,7 +101,6 @@ test('configured resources register the complete cache-safe metadata contract', 
 
     (new TranslatableServiceProvider(app()))->boot(
         $resources,
-        app(TypeScriptSourceRegistry::class),
     );
 
     $resource = $resources->get('consumer.articles');
@@ -146,10 +148,10 @@ test('consumer commands support human and machine readable resource workflows', 
         maximumPageSize: 25,
     );
     $article = TestTranslatableModel::create(['slug' => 'consumer-guide']);
-    app(TranslationWriter::class)->patch($article, [
+    app(TranslationWriter::class)->sync($article, [
         'en' => ['name' => 'Consumer guide'],
         'bg' => ['name' => 'Потребителско ръководство'],
-    ]);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($article));
 
     $this->artisan('nvl:translatable:gather')
         ->expectsOutputToContain('consumer.articles')
@@ -201,7 +203,7 @@ test('legacy option and locale helpers preserve the canonical consumer contract'
         availableLocales: ['en', 'bg'],
         fallbackLocale: 'bg',
         fallbackLocales: ['en', 'bg'],
-        mutationPolicy: TranslationMutationPolicy::DomainActionOnly,
+        mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
     );
     $self = new SelfTranslatableOptions(
         localeKey: 'locale',
@@ -213,7 +215,7 @@ test('legacy option and locale helpers preserve the canonical consumer contract'
         fallbackLocales: ['en', 'bg'],
         sharedFields: ['type'],
         allowDeletingLastTranslation: true,
-        mutationPolicy: TranslationMutationPolicy::DomainActionOnly,
+        mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
     );
     $selfDefinition = $self->toDefinition();
     $roundTrippedSelf = SelfTranslatableOptions::fromDefinition($selfDefinition);
@@ -270,14 +272,16 @@ test('related and self consumers can compose every public query and locale helpe
         $table->string('type')->nullable();
         $table->unique(['entry_key', 'locale']);
     });
+    app(TranslationResourceRegistry::class)->register('consumer.related', TestTranslatableModel::class, 'Related consumer');
+    app(TranslationResourceRegistry::class)->register('consumer.self', TestSelfTranslatableModel::class, 'Self consumer');
     $writer = app(TranslationWriter::class);
     $alpha = TestTranslatableModel::create(['slug' => 'alpha']);
     $beta = TestTranslatableModel::create(['slug' => 'beta']);
-    $writer->patch($alpha, [
+    $writer->sync($alpha, [
         'en' => ['name' => 'Alpha', 'description' => null],
         'bg' => ['name' => 'Алфа', 'description' => 'Описание'],
-    ]);
-    $writer->upsert($beta, 'en', ['name' => 'Beta', 'description' => 'Description']);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($alpha));
+    $writer->sync($beta, ['en' => ['name' => 'Beta', 'description' => 'Description']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($beta));
     $self = TestSelfTranslatableModel::create([
         'entry_key' => 'consumer.alpha',
         'locale' => 'en',
@@ -285,10 +289,7 @@ test('related and self consumers can compose every public query and locale helpe
         'description' => null,
         'type' => 'consumer',
     ]);
-    $self->setTranslation([
-        'name' => 'Алфа',
-        'description' => 'Описание',
-    ], 'bg');
+    $writer->sync($self, ['bg' => ['name' => 'Алфа', 'description' => 'Описание']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($self));
     app(ContentLocale::class)->set('bg');
 
     expect($alpha->setLocale('bg')->getCurrentLocale())->toBe('bg')
@@ -469,16 +470,16 @@ test('resource authorization and default metadata remain transport neutral', fun
         label: 'Articles',
         modelClass: TestTranslatableModel::class,
         authorization: static fn (
-            TranslationActorData $actor,
+            \Illuminate\Contracts\Auth\Authenticatable|SystemActor $actor,
             TranslationResourceAbility $ability,
             ?Model $record,
-        ): bool => $actor->system
+        ): bool => $actor === SystemActor::Background
             && $ability === TranslationResourceAbility::View
             && $record === null,
     );
 
     expect($resource->authorize(
-        TranslationActorData::system('test'),
+        SystemActor::Background,
         TranslationResourceAbility::View,
         null,
     ))->toBeTrue()

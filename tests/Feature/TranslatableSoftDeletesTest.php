@@ -2,18 +2,21 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Nvl\Translatable\Actions\SyncTranslationResourceAction;
-use Nvl\Translatable\Data\TranslationActorData;
-use Nvl\Translatable\Data\TranslationMutationData;
+use Nvl\Support\Enums\SystemActor;
+use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
+use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TestSoftDeletingSelfTranslatableModel;
-use Nvl\Translatable\TranslationResourceQuery;
 
 beforeEach(function (): void {
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
@@ -44,8 +47,8 @@ test('locale queries fall back after the requested self translation is soft dele
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('bg');
+    app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect(TestSoftDeletingSelfTranslatableModel::query()->locale('bg')->pluck('name')->all())
         ->toBe(['English'])
@@ -57,8 +60,8 @@ test('locale queries can explicitly include soft deleted preferred rows', functi
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('bg');
+    app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect(TestSoftDeletingSelfTranslatableModel::withTrashed()->locale('bg')->pluck('name')->all())
         ->toBe(['Bulgarian']);
@@ -68,8 +71,8 @@ test('locale queries restricted to deleted rows ignore active preferred locales'
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('en');
+    app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'en', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect(TestSoftDeletingSelfTranslatableModel::onlyTrashed()->locale('bg')->pluck('name')->all())
         ->toBe(['English']);
@@ -79,8 +82,8 @@ test('locale selection can run inside a model global scope without recursion', f
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('bg');
+    app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $invocations = 0;
     TestSoftDeletingSelfTranslatableModel::addGlobalScope(
         'content_locale',
@@ -105,12 +108,13 @@ test('writing a deleted self translation restores its identity and retained cont
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English', 'type' => 'original',
     ]);
-    $bulgarian = $model->setTranslation(['name' => 'Bulgarian', 'description' => 'Retained'], 'bg');
-    $model->deleteTranslation('bg');
+    $bulgarian = app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian', 'description' => 'Retained']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model))->getTranslation('bg', withFallback: false);
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $model->setRelation('translations', $model->getAllTranslations());
     $model->forceFill(['type' => 'updated'])->save();
+    $model->unsetRelation('translations');
 
-    $restored = $model->setTranslation(['name' => 'Bulgarian again'], 'bg');
+    $restored = app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian again']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model))->getTranslation('bg', withFallback: false);
 
     expect($restored->getKey())->toBe($bulgarian->getKey())
         ->and($restored->getAttribute('archived_at'))->toBeNull()
@@ -125,11 +129,11 @@ test('replace restores a deleted locale before soft deleting the excluded locale
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $bulgarian = $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('bg');
+    $bulgarian = app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model))->getTranslation('bg', withFallback: false);
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     $model->getConnection()->transaction(
-        fn () => app(TranslationWriter::class)->replace($model, ['bg' => ['name' => 'Only Bulgarian']]),
+        fn () => app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Only Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model), TranslationSyncMode::Replace),
     );
 
     expect(TestSoftDeletingSelfTranslatableModel::query()->pluck('id')->all())->toBe([$bulgarian->getKey()])
@@ -141,10 +145,10 @@ test('soft deleted locales do not count toward final locale protection', functio
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('bg');
+    app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
-    expect(fn () => $model->deleteTranslation('en'))
+    expect(fn () => app(TranslationWriter::class)->deleteLocale($model, 'en', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))
         ->toThrow(TranslatableException::class, 'final locale row')
         ->and(TestSoftDeletingSelfTranslatableModel::query()->count())->toBe(1);
 });
@@ -153,33 +157,25 @@ test('central reads retain active resources and omit deleted locales from covera
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'en', 'name' => 'English',
     ]);
-    $model->setTranslation(['name' => 'Bulgarian'], 'bg');
-    $model->deleteTranslation('bg');
+    app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'bg', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $gatherer = app(TranslationResourceGatherer::class);
-    $actor = TranslationActorData::system('test');
+    $actor = SystemActor::Background;
 
     $page = $gatherer->gather('tests.soft-self', $actor);
     $summary = $gatherer->summaries($actor)[0];
 
     expect($page->total())->toBe(1)
-        ->and($summary->total)->toBe(1)
-        ->and($summary->coverage['en']->translated)->toBe(1)
-        ->and($summary->coverage['bg']->translated)->toBe(0)
-        ->and($summary->coverage['bg']->missing)->toBe(1);
+        ->and($summary['total'])->toBe(1)
+        ->and($summary['coverage']['en']['translated'])->toBe(1)
+        ->and($summary['coverage']['bg']['translated'])->toBe(0)
+        ->and($summary['coverage']['bg']['missing'])->toBe(1);
 
     $record = $gatherer->find('tests.soft-self', 'guide', $actor);
-    $updated = app(SyncTranslationResourceAction::class)->execute(
-        'tests.soft-self',
-        'guide',
-        new TranslationMutationData(
-            translations: ['bg' => ['name' => 'Restored']],
-            expectedVersion: $record->version,
-        ),
-        $actor,
-    );
+    $updated = app(TranslationWriter::class)->sync($model, ['bg' => ['name' => 'Restored']], $actor, $record['version']);
 
-    expect($updated->id)->toBe('guide')
-        ->and($gatherer->find('tests.soft-self', 'guide', $actor)->translations['bg']['name'])
+    expect($updated->translationResourceKey())->toBe('guide')
+        ->and($gatherer->find('tests.soft-self', 'guide', $actor)['translations']['bg']['name'])
         ->toBe('Restored');
 });
 
@@ -187,13 +183,13 @@ test('central search does not match soft deleted translated content', function (
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'bg', 'name' => 'Bulgarian',
     ]);
-    $model->setTranslation(['name' => 'Archived English'], 'en');
-    $model->deleteTranslation('en');
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'Archived English']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'en', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     $page = app(TranslationResourceGatherer::class)->gather(
         'tests.soft-self',
-        TranslationActorData::system('test'),
-        new TranslationResourceQuery(search: 'Archived'),
+        SystemActor::Background,
+        ['search' => 'Archived'],
     );
 
     expect($page->total())->toBe(0);
@@ -203,15 +199,15 @@ test('central missing locale filters include soft deleted translations', functio
     $model = TestSoftDeletingSelfTranslatableModel::create([
         'entry_key' => 'guide', 'locale' => 'bg', 'name' => 'Bulgarian',
     ]);
-    $model->setTranslation(['name' => 'English'], 'en');
-    $model->deleteTranslation('en');
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'English']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    app(TranslationWriter::class)->deleteLocale($model, 'en', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     $page = app(TranslationResourceGatherer::class)->gather(
         'tests.soft-self',
-        TranslationActorData::system('test'),
-        new TranslationResourceQuery(missingLocale: 'en'),
+        SystemActor::Background,
+        ['missing_locale' => 'en'],
     );
 
     expect($page->total())->toBe(1)
-        ->and($page->items()[0]->id)->toBe('guide');
+        ->and($page->items()[0]['id'])->toBe('guide');
 });

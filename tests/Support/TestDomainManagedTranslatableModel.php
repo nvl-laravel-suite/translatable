@@ -8,12 +8,12 @@ use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\RelatedTranslationDefinition;
 
 /**
- * Test owner whose translations must be changed through a package domain action.
+ * Test owner whose translations must be changed through its owning package service.
  */
 final class TestDomainManagedTranslatableModel extends TestTranslatableModel
 {
     /**
-     * Configure a domain-action-only translation mutation policy.
+     * Configure an owning-service-only translation mutation policy.
      */
     protected function defineTranslations(): RelatedTranslationDefinition
     {
@@ -23,7 +23,7 @@ final class TestDomainManagedTranslatableModel extends TestTranslatableModel
             fields: ['name', 'description'],
             fallbackLocales: ['en'],
             locales: ['en', 'bg', 'en-GB'],
-            mutationPolicy: TranslationMutationPolicy::DomainActionOnly,
+            mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
         );
     }
 }

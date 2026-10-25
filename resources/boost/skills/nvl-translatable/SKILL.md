@@ -1,209 +1,56 @@
 ---
 name: nvl-translatable
-description: Design, implement, migrate, integrate, test, diagnose, audit, or review nvl/translatable in Laravel 13. Use for related translation tables, grouped same-table translations without owner rows, typed model declarations, deterministic fallback policies, request-scoped content locales, centralized resource registration and gathering, authorized mutation, optimistic concurrency, schema diagnostics, or package integrations.
+description: Use when designing, implementing, migrating, integrating, testing, diagnosing, auditing, or reviewing nvl/translatable in Laravel, including related translation tables, grouped self rows, fallback, content locale, native Ownership isolation, registered resource reads, authorized mutation, revisions, and schema diagnostics.
 ---
 
 # NVL Translatable
 
-For major 6, use native Ownership for new isolated integrations and the installed
-Ownership README/UPGRADING runbook for configured subclasses and reviewed adoption.
-Ordinary unowned hosts keep unscoped declarations; installation does not enable
-isolation. Tenant-specific APIs below apply only to the explicitly selected
-deprecated Tenancy bridge; they never substitute for native owner admission.
+Translatable owns locale storage and its native service contract. The host owns HTTP requests, controllers, Actions, Data objects, and frontend types. Do not invent a package facade to restore retired public operations.
 
-Keep model content in `nvl/translatable`. Keep Laravel UI strings in language
-files managed by `nvl/translations`.
+## Start with the concrete storage
 
-## Execute deliberately
+1. Inspect the model, migration, actual connection, primary and logical keys, casts, indexes, and host authorization.
+2. Choose related rows when a canonical owner has locale independent state. Choose grouped self rows when the logical resource consists only of locale rows.
+3. Implement TranslatableModel with Translatable and RelatedTranslationDefinition, or SelfTranslatableModel with SelfTranslatable and SelfTranslationDefinition.
+4. Declare fields, locales, fallback policy, and a stable group key for self rows. Never infer fields or schema from a model directory.
+5. Register each concrete model and resource key in TranslationResourceRegistry. Whitelist search, display, ordering, and maximum page size.
+6. If Ownership protects it, register the exact owner and translation models with OwnershipResourceRegistry, adopt their schema, and enter an admitted owner or central scope. A tenant-named column alone grants nothing.
+7. Run focused Pest, PHPStan, Pint, and nvl:translatable:doctor checks.
 
-1. Inspect the model, migration, key strategy, connection, casts, fillable
-   fields, and existing mutation action.
-2. Choose related or self storage from the resource's canonical identity.
-3. Maintain explicit domain-owned models and migrations.
-4. Add a typed `defineTranslations()` declaration.
-5. Register stable resource metadata, visibility, and authorization.
-6. Route writes through the owning transaction and mutation policy.
-7. Run focused tests, static analysis, formatting, TypeScript checks, and
-   `php artisan nvl:translatable:doctor --json`.
+Related rows need a same-connection parent relation, cascade foreign key, and unique parent/locale index. Self rows need immutable group/locale identity and a unique logical group/locale index. Native Ownership adds its declared owner scope key and durable admission requirements. Soft-deleted self locale rows may be restored by the storage workflow; keep uniqueness across active and deleted rows.
 
-Tenancy is opt-in and disabled by default. Do not add ownership columns or
-tenant tables to disabled, unadopted legacy consumers. In enabled deployments,
-every `RelatedTranslationDefinition` and `SelfTranslationDefinition` must set
-`ownershipResource` to a domain-owned resource registered and adopted through
-`TenantResourceRegistry`; missing declarations or context fail closed.
+## Read and resolve
 
-Never generate or discover schema, models, fields, or storage strategies from
-translation declarations. A declaration omits SQL types, nullability,
-defaults, indexes, casts, relationships, connection ownership, and migration
-history. Use explicit schema plus the doctor as the verification boundary.
+Use translated() for a value and resolveTranslation() for its provenance. Preserve empty strings and other non-null falsey values. Use Configured fallback by default, ExactOnly when fallback is forbidden, and AnyAvailable only when product behavior explicitly allows it. Explicit ContentLocale is scoped to request or job context and restored after a native Ownership callback.
 
-## Choose storage deliberately
+Use getAllTranslations(), getAvailableLocales(), locale(), withResolvedTranslations(), and declared translated-field scopes. Apply model visibility and owner constraints before locale selection. Batch preloading should remain bounded as page size grows; do not admit a row from a different owner or resource query scope.
 
-- Use related rows when a canonical owner stores meaningful
-  locale-independent state.
-- Use self rows when the logical resource is only grouped localized rows and
-  an owner table would be empty.
-- Never auto-detect fields or infer a strategy from table names.
+TranslationResourceGatherer::summaries(), gather(), and find() return native arrays or a paginator of arrays. They take an actual Illuminate\Contracts\Auth\Authenticatable or Nvl\Support\Enums\SystemActor. Gather accepts only search, missing_locale, page, and per_page query keys. The host validates its HTTP query and formats its own DTOs.
 
-For related rows, implement `TranslatableModel`, use `Translatable`, and return
-`RelatedTranslationDefinition` from `defineTranslations()`.
+## Mutate through the complete service
 
-For self rows, implement `SelfTranslatableModel`, use `SelfTranslatable`, and
-return `SelfTranslationDefinition`. Require a stable group key. Separate
-translated `fields` from structural `sharedFields`.
+Bind TranslationResourceAuthorizer in the host. Its default implementation denies access. Persist ordinary actors before writing; authorize SystemActor values explicitly. Derive both from trusted server state.
 
-## Enforce schema invariants
+Read the current revision with TranslationResourceVersioner::version() on a canonical, admitted model. Pass the mandatory revision into TranslationWriter::sync() or deleteLocale(). The writer owns the model-connection transaction, locks and re-reads canonical storage, enforces resource and actor policy, verifies the revision, and dispatches events after commit.
 
-- Use a locale column at least 35 characters wide.
-- Require a unique owner/locale or group/locale index.
-- Require cascade deletion for related translation rows.
-- Keep related owner and translation models on the same connection.
-- Match model key generation to the schema; UUID models must use Laravel's
-  HasUuids trait.
-- Align translation-model table, fillable fields, casts, relationships, and
-  connection with its migration.
-- Keep group, locale, foreign-key, and shared columns out of mutation payloads.
-- Keep Eloquent-managed primary key, timestamp, and soft-delete columns out of
-  translated and shared fields.
-- Treat self-row group and locale identity as immutable.
-- For tenant-only self rows, make `(tenant_id, group, locale)` unique.
-- For tenant-only related rows, carry `tenant_id` into the child, make
-  `(tenant_id, owner_id, locale)` unique, and reference the owner's composite
-  `(tenant_id, id)` key.
-- For mixed platform/tenant catalogs, use nullable `tenant_id`, non-null
-  `ownership_key`, and partition uniqueness by `ownership_key`; valid values
-  are `platform` and `tenant:<canonical UUID>`.
+    $version = $versioner->version($article);
+    $article = $writer->sync(
+        owner: $article,
+        translations: ['bg' => ['title' => 'Заглавие']],
+        actor: $user,
+        expectedVersion: $version,
+        mode: TranslationSyncMode::Patch,
+        resourceKey: 'articles',
+    );
 
-Run `php artisan nvl:translatable:doctor` after schema or configuration
-changes.
+Patch preserves omitted locales. Replace removes omitted locales. An explicit null is different from an omitted field. Reject unknown locales or fields, oversized payloads, stale revisions, and wrong model/resource combinations before mutation. The resource key may be omitted only when the concrete model has exactly one registration. An explicit key still enforces exact model, canonical storage, query scope, and actor policy.
 
-## Resolve explicitly
+Use TranslationMutationPolicy::OwningServiceOnly when a domain service must own related validation or lifecycle. TranslationWriter rejects generic writes for such resources. Genuine model casts and storage hooks may stage or persist fields inside that separately authorized service workflow; they have no independent actor semantics. Avoid raw SQL, bulk query writes, and client-supplied ownership columns.
 
-- Use `translated()` for a value and `resolveTranslation()` for provenance.
-- Preserve empty strings and other non-null falsey values.
-- Default to `TranslationFallbackPolicy::Configured`.
-- Resolve progressively less-specific parents for multi-segment locales.
-- Use `TranslationFallbackPolicy::ExactOnly` when fallback is forbidden.
-- Use `TranslationFallbackPolicy::AnyAvailable` only when product behavior
-  explicitly permits it.
-- Never select by insertion order.
-- Use `getTranslation($locale, withFallback: false)` for exact row access.
+## Audit and verify
 
-Eager-load related translations for collections. Use `locale()` on self-row
-queries to select one requested or fallback row per group.
-Apply visibility constraints before `locale()`. Soft-deleted rows do not block
-fallback by default; use `withTrashed()->locale(...)` to include them or
-`onlyTrashed()->locale(...)` to select among deleted rows.
-
-## Mutate safely
-
-- Accept locale-keyed payloads and validate HTTP input with
-  `SupportedLocaleMapRule`.
-- Use `TranslationWriter` only inside a transaction on
-  `$model->getConnection()`.
-- Treat models and loaded translation relations as execution-local. Retain
-  scalar IDs across tenant/mode changes and reload through the canonical
-  tenant query.
-- For model-local self-row mutations, use `setTranslation()`,
-  `cloneTranslation()`, and `deleteTranslation()`; these preserve identity,
-  grouped locking, final-row protection, deadlock retries, and loaded state.
-- Self-row models support `Illuminate\Database\Eloquent\SoftDeletes`, including custom deleted-at columns.
-  Writing a deleted locale restores its existing physical row, retains omitted
-  translated fields, and refreshes shared fields. Keep the group/locale unique
-  index across active and deleted rows; only active rows count toward final-row
-  protection.
-- Instance saves enforce self-row structure even when model events are muted;
-  bulk query updates bypass Eloquent and must never change group or locale.
-- Prefer `SyncTranslationResourceAction` and
-  `DeleteTranslationResourceLocaleAction` for direct-mutation resources.
-- Declare the DomainActionOnly translation mutation policy when package
-  validation, optimistic concurrency, related-data synchronization, activity,
-  or domain events must own the write.
-- Default to `TranslationSyncMode::Patch`; require explicit
-  `TranslationSyncMode::Replace`.
-- Require expected versions and dispatch side effects after commit.
-- Configure `nvl-translatable.transactions.attempts` for deadlock retries.
-- Derive `TranslationActorData` on the server; never trust a client-supplied
-  system actor.
-- Never write translation rows from controllers, DTOs, observers,
-  presentation services, or arbitrary model `fill()` / `save()` calls.
-- Treat raw SQL, bulk query writes, muted model events, and externally loaded
-  relations as host trust boundaries. They must apply exact ownership
-  predicates and must never accept `tenant_id` or `ownership_key` from client
-  payloads.
-
-## Register and audit
-
-- Register explicit stable resource keys in `TranslationResourceRegistry`.
-- Whitelist search, display, and order columns; bound page size and define
-  visibility explicitly.
-- Bind application authorization; the package default fails closed for
-  ordinary actors.
-- Keep self-resource query scopes on group or consistently shared columns.
-- Keep configuration serializable; register closures from a service provider.
-- Verify every `TranslationWriter` call is inside a transaction on the
-  model's connection.
-- Verify DomainActionOnly resources use their owning package actions.
-- Search for direct translation-row writes, arbitrary model saves, bulk query
-  identity updates, model-directory scans, and cross-connection relations.
-- Test both strategies for exact reads, configured fallback, null fallback,
-  empty values, invalid locales and fields, patch/replace, final-row
-  protection, query counts, connection selection, stale writes, payload
-  limits, and after-commit events.
-- Run package-scoped Pest, PHPStan, Pint, `nvl:translatable:doctor`, and
-  `nvl:data:types:check`.
-
-## Ownership isolation and release discipline
-
-- Keep unowned applications independent of the enforcement runtime; native ownership never adds an undeclared Auth or Suite dependency. Tenancy-specific APIs are deprecated bridge compatibility.
-- Use registered package-owned resources, adoption adapters, Actions, and lifecycle APIs. Never add a generic owner delete-all path or raw cross-package cleanup.
-- Treat mapping/configuration hashes, interruption checkpoints, conservation evidence, worker context, owner-partitioned queries, and standalone consumption as release contracts.
-
-## Shared owner identities
-
-- Declare owner class lists in `nvl-core.owners` and reference model classes in `translatable` capability configuration. Laravel `getMorphClass()` supplies the host-authored stored identity; declarations do not add global host morph mappings.
-- Resource keys remain independent of owner aliases. Preserve search/display columns, query scopes, resource authorization, and the model translation mutation policy.
-- Keep the package allowlist and authorization independent of Core registration. Never authorize a model merely because Core knows it.
-- Preserve resolvers, handlers and authorization. Legacy aliases require agreement with native `getMorphClass()` and remain deprecated in major 6; Doctor reports mismatches and stored identity drift without conversion.
-- If the host changes its morph map, explicitly reconcile reviewed package-owned columns and affected host relations before cutover. Core and package capability registration never mutate the host morph map or rewrite stored values.
-
-## Shared consumer diagnostics
-
-Run `php artisan nvl:doctor --strict --format=json` to combine checks from loaded NVL providers. Retain the package Doctor command for its detailed report; both paths reuse the package-owned inspection service.
-
-## Canonical configuration ownership
-
-- Read/write `nvl-translatable` configuration and publish only canonical `nvl-<package>-<resource>` tags. Keep logical package/tenant resource identifiers unchanged.
-- Generic config roots and unprefixed package environment names are foreign by default. For an upgrading NVL host only, select `nvl-core.compatibility.legacy_config` package IDs and `legacy_env` explicitly; both default off. Canonical presence wins, including false/null/empty values. Legacy inputs are read without writing back and remain deprecated in major 6.
-- Use canonical `NVL_<PACKAGE>_*` variables only in config evaluation, then rebuild configuration caches and restart workers after cutover. Shared Laravel environment variables retain their names. Consult Core's versioned `support/resources/global-names.json` for all renames.
-- Old global aliases and legacy route families require separate explicit `global_aliases`/`legacy_routes` package selections. Preserve collisions and use Doctor diagnostics; never grant generic permissions automatically or claim signed-link compatibility without the same authorization/signature checks.
-
-## Application workflow substitution
-
-Both resource workflows gain focused contracts. Authorizer and locale-preference defaults retain host bindings; scoped locale behavior and host-owned translation definitions remain native.
-
-The supported workflow injection names are `DeleteTranslationResourceLocaleContract`, `SyncTranslationResourceContract`.
-
-Inject the supported contract into host orchestration and bind a native interface
-mock or host implementation before resolving that orchestration. Keep concrete
-constructors and native workflow bodies intact; internal chains remain package-owned.
-Use declared DTOs or unsaved model identity handles for orchestration fixtures.
-Use real package workflows and Laravel framework fakes for persistence, tenant,
-queue, file, and external-effect integration checks. A host substitute proves
-only the host call and result. Keep public declarations tagged `@api` and
-constructor/configuration/private helpers internal.
-
-Consult the owning README's Testing your app section for native examples. Include
-`vendor/nvl/core/support/consumer-audit.neon` in host PHPStan and declare explicit
-`nvlConsumer.testPaths`; the Suite workbench is not consumer tooling.
-
-
-## Consumer runtime and testing contracts
-
-Start with the package README Quickstart and Testing your app sections. Use `nvl:install <package>` for loaded-package common config publication; it does not enable features, run schema or refresh caches. Preserve native host owner keys/morph maps and selected host Auth and ownership defaults. Read full runtime defaults and publish advanced config only deliberately.
-
-Inject the supported focused interfaces and preserve host bindings. Returned model handles do not permit package-table queries/writes outside documented capability/extension seams. Host tests may substitute contracts in Laravel's container, use shipped model factories (ordinary make may persist parents; withoutParents()->make is detached), and use Laravel effect fakes deliberately. Only Media/Stripe have dedicated provider/library fakes; do not invent a universal package fake. Settings InteractsWithSettings is definition-only. Host PHPStan may include vendor/nvl/core/support/consumer-audit.neon; no unpublished workbench command is a consumer requirement.
-
-Read docs/events.md and the package README error table. Domain events use schemaVersion=1, model-free facts and actual source-connection commit callbacks; only six declared old Event suffix aliases remain deprecated through major 6. Migrate exact listeners/fakes and suffix wildcards, drain old queued payloads, rebuild event cache and restart workers. Delivery is not a durable outbox. The Core exception renderer is opt-in, JSON-only for respondable failures, with exactly message/code/context and host-selected locale. Do not expose diagnostics or reinterpret missing bindings as authorization denial.
-
-Core package logging uses nvl/normal with CSV quiet by default, stable message keys and bounded context; incidents survive quiet. Do not mutate global logger context or log raw row/provider/content/credential payloads. Run only authorized project checks and report new acceptance as pending until actual output exists.
+- Test related and grouped rows for exact/fallback/null reads, soft deletes, patch/replace, final self-row protection, version collisions, after-commit events, malformed payloads, and connection selection.
+- Test native Ownership isolation for stale owner or generation, forged parent IDs, explicit out-of-scope resource keys, worker context restoration, and missing-runtime denial.
+- Measure first and consecutive same-scope reads as well as page-size scaling. Preserve fresh readiness, store, and fence checks while reducing redundant queries.
+- Run nvl:translatable:doctor --strict after schema or registration changes. The doctor inspects native Ownership readiness and resource schema; it does not adopt or rewrite rows.
+- Keep nvl-translatable configuration and published tags canonical. Rebuild config caches and restart workers after reviewed registration or adoption changes.

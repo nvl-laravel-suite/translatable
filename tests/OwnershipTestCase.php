@@ -9,7 +9,6 @@ use Illuminate\Contracts\Foundation\MaintenanceMode;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
-use Nvl\Data\Providers\DataServiceProvider;
 use Nvl\Ownership\Contracts\CentralAccess;
 use Nvl\Ownership\Contracts\OwnerAccess;
 use Nvl\Ownership\Contracts\OwnershipAdoptionAccess;
@@ -17,11 +16,16 @@ use Nvl\Ownership\Providers\OwnershipServiceProvider;
 use Nvl\Ownership\Services\OwnershipAdoptionCoordinator;
 use Nvl\Ownership\ValueObjects\OwnershipMapping;
 use Nvl\Ownership\ValueObjects\OwnershipOperation;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Providers\LocaleServiceProvider;
 use Nvl\Support\Providers\SupportServiceProvider;
+use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
+use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Tests\Support\OwnershipActor;
 use Nvl\Translatable\Tests\Support\OwnershipCompany;
+use Nvl\Translatable\Tests\Support\OwnershipRelatedRecord;
+use Nvl\Translatable\Tests\Support\OwnershipSelfRecord;
 use Nvl\Translatable\Tests\Support\OwnershipTranslationScenario;
 use Orchestra\Testbench\TestCase;
 
@@ -31,7 +35,7 @@ abstract class OwnershipTestCase extends TestCase
     /** @return list<class-string> */
     protected function getPackageProviders($app): array
     {
-        return [LocaleServiceProvider::class, SupportServiceProvider::class, DataServiceProvider::class, OwnershipServiceProvider::class, TranslatableServiceProvider::class];
+        return [LocaleServiceProvider::class, SupportServiceProvider::class, OwnershipServiceProvider::class, TranslatableServiceProvider::class];
     }
 
     /** Configure owned package roots before immutable resource registration. */
@@ -42,7 +46,6 @@ abstract class OwnershipTestCase extends TestCase
             'nvl-core.owners' => [OwnershipCompany::class, OwnershipActor::class],
             'nvl-ownership.enabled' => true, 'nvl-ownership.migrations.enabled' => false,
             'nvl-ownership.central_operations' => ['translation-maintain'],
-            'nvl-tenancy.enabled' => false,
             'nvl-translatable.locales' => ['en', 'bg'],
             'nvl-translatable.default_locale' => 'en',
             'nvl-translatable.fallback_locales' => ['en'],
@@ -107,6 +110,9 @@ abstract class OwnershipTestCase extends TestCase
         $plan = $coordinator->prepare(['fixture'], $this->reviewedMappings(), $operation);
         $coordinator->backfill($plan, 100, $operation);
         $coordinator->activate($plan, $operation);
+        $authorization = static fn (Authenticatable|SystemActor $actor, TranslationResourceAbility $ability, ?Model $record): bool => $actor === SystemActor::Background;
+        $this->app->make(TranslationResourceRegistry::class)->register('fixture.records', OwnershipRelatedRecord::class, 'Related records', authorization: $authorization);
+        $this->app->make(TranslationResourceRegistry::class)->register('fixture.self', OwnershipSelfRecord::class, 'Self records', authorization: $authorization);
     }
 
     /** @return list<OwnershipMapping> */

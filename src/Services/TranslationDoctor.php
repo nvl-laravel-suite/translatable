@@ -12,9 +12,8 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Builder;
 use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Support\Locales\LocaleCatalogDiagnostics;
-use Nvl\Support\Tenancy\Contracts\TenantInstallationState;
-use Nvl\Support\Tenancy\Enums\TenantResourceKind;
-use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Ownership\Contracts\OwnershipReadiness;
+use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
@@ -38,8 +37,8 @@ final readonly class TranslationDoctor
         private Repository $config,
         private TranslationResourceRegistry $resources,
         private TranslationOwnership $ownership,
-        private TenantResourceRegistry $tenantResources,
-        private TenantInstallationState $installation,
+        private OwnershipResourceRegistry $ownershipResources,
+        private OwnershipReadiness $readiness,
         private LocaleCatalog $locales,
         private LocaleCatalogDiagnostics $localeDiagnostics,
     ) {}
@@ -384,8 +383,9 @@ final readonly class TranslationDoctor
             $errors,
         );
         $foreignKeys = $translationSchema->getForeignKeys($translationTable);
-        $foreignColumns = [...$partitionColumns, $foreignKey];
-        $ownerColumns = [...$partitionColumns, $definition->ownerKey];
+        $nativePartition = $partitionColumns === ['owner_scope_key'] && $definition->ownershipResource !== null;
+        $foreignColumns = $nativePartition ? [$foreignKey] : [...$partitionColumns, $foreignKey];
+        $ownerColumns = $nativePartition ? [$definition->ownerKey] : [...$partitionColumns, $definition->ownerKey];
         $matchingForeignKey = collect($foreignKeys)->first(
             static fn (array $key): bool => $key['columns'] === $foreignColumns
                 && $key['foreign_table'] === $model->getTable()
@@ -418,7 +418,7 @@ final readonly class TranslationDoctor
         }
 
         try {
-            $registered = $this->tenantResources->forModel($translation);
+            $registered = $this->ownershipResources->forModel($translation);
             $canonical = new $registered->model;
             if ($canonical::class !== $translation::class
                 || $canonical->getTable() !== $translation->getTable()
@@ -432,13 +432,13 @@ final readonly class TranslationDoctor
             return;
         }
 
-        if ($registered->kind !== TenantResourceKind::Inherited
-            || $registered->parentResource !== $definition->ownershipResource
-            || $registered->parentRelation === null) {
+        if ($registered->ownership->strategy !== 'inherited'
+            || ! in_array($definition->ownershipResource, $registered->parents(), true)
+            || $registered->ownership->relation === null) {
             $errors[] = "Resource [{$resource->key}] related translation ownership must inherit from [{$definition->ownershipResource}].";
         } else {
             try {
-                $relation = Relation::noConstraints(fn () => $canonical->{$registered->parentRelation}());
+                $relation = Relation::noConstraints(fn () => $canonical->{$registered->ownership->relation}());
                 $parent = $relation instanceof BelongsTo ? $relation->getRelated() : null;
                 if (! $parent instanceof Model
                     || $parent::class !== $owner::class
@@ -452,7 +452,7 @@ final readonly class TranslationDoctor
         }
 
         try {
-            $this->installation->assertUsable($registered->key);
+            $this->readiness->assertActive($registered->key);
         } catch (Throwable $exception) {
             $errors[] = "Resource [{$resource->key}] related translation ownership adoption is incompatible: {$exception->getMessage()}";
         }
@@ -521,21 +521,17 @@ final readonly class TranslationDoctor
         array &$errors,
     ): array {
         if ($definition->ownershipResource === null) {
-            if ($this->config->get('nvl-tenancy.enabled') === true) {
-                $errors[] = "Resource [{$resource->key}] must declare an ownership resource key before tenancy is enabled.";
-            }
-
             try {
-                $this->installation->assertUnadopted($model->getConnection());
+                $this->ownership->assertOwner($model, $definition);
             } catch (Throwable $exception) {
-                $errors[] = "Resource [{$resource->key}] legacy storage is incompatible with persisted adoption: {$exception->getMessage()}";
+                $errors[] = "Resource [{$resource->key}] unowned storage is incompatible with persisted ownership: {$exception->getMessage()}";
             }
 
             return [];
         }
 
         try {
-            $registered = $this->tenantResources->get($definition->ownershipResource);
+            $registered = $this->ownershipResources->get($definition->ownershipResource);
             $canonical = new $registered->model;
             if ($canonical::class !== $model::class
                 || $canonical->getTable() !== $model->getTable()
@@ -558,7 +554,7 @@ final readonly class TranslationDoctor
     }
 
     /**
-     * Return physical ownership columns required by declared tenant storage.
+     * Return native partition columns required by declared ownership storage.
      *
      * @param  list<string>  $partitionColumns
      * @return list<string>
@@ -571,7 +567,7 @@ final readonly class TranslationDoctor
             return [];
         }
 
-        return array_values(array_unique(['tenant_id', ...$partitionColumns]));
+        return $partitionColumns;
     }
 
     /**
@@ -588,7 +584,7 @@ final readonly class TranslationDoctor
         if ($definition instanceof SelfTranslationDefinition) {
             $mutable = [...$mutable, ...$definition->sharedFields];
         }
-        $structural = ['tenant_id', 'ownership_key', $definition->localeKey];
+        $structural = ['tenant_id', 'owner_scope_key', 'owner_reference', $definition->localeKey];
         if ($definition instanceof SelfTranslationDefinition) {
             $structural[] = $definition->groupKey;
         }
@@ -638,9 +634,15 @@ final readonly class TranslationDoctor
         array $columns,
         array &$errors,
     ): void {
+        $expected = $columns;
+        sort($expected);
         $hasUnique = collect($schema->getIndexes($table))->contains(
-            static fn (array $index): bool => $index['unique']
-                && $index['columns'] === $columns,
+            static function (array $index) use ($expected): bool {
+                $actual = $index['columns'];
+                sort($actual);
+
+                return $index['unique'] && $actual === $expected;
+            },
         );
 
         if (! $hasUnique) {
@@ -666,6 +668,9 @@ final readonly class TranslationDoctor
         $metadata = collect($schema->getColumns($table))->keyBy('name');
 
         foreach ($columns as $column) {
+            if ($column === 'owner_scope_key') {
+                continue;
+            }
             $definition = $metadata->get($column);
 
             if (is_array($definition) && $definition['nullable']) {

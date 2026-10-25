@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__, 2).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TenancyTestCase');
+}
+
 use Composer\InstalledVersions;
 use Illuminate\Support\Facades\DB;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;

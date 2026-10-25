@@ -10,34 +10,36 @@ use Illuminate\Contracts\Foundation\MaintenanceMode;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
-use Nvl\Support\Tenancy\Contracts\TenantContext;
-use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
-use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Support\Tenancy\ValueObjects\TenantId;
-use Nvl\Support\Tenancy\ValueObjects\TenantJobEnvelope;
-use Nvl\Tenancy\Services\TenantAdoptionCoordinator;
-use Nvl\Tenancy\Services\TenantBoundary;
-use Nvl\Tenancy\Services\TenantRunner;
+use Nvl\Ownership\Services\OwnershipAdoptionCoordinator;
+use Nvl\Ownership\Services\OwnershipRunner;
+use Nvl\Ownership\Services\OwnershipWriter;
+use Nvl\Ownership\ValueObjects\OwnershipAssignment;
+use Nvl\Ownership\ValueObjects\OwnershipOperation;
+use Nvl\Support\Ownership\Contracts\OwnershipContext;
+use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
+use Nvl\Support\Ownership\ValueObjects\OwnershipJobEnvelope;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
+use Nvl\Translatable\Tests\Support\OwnershipActor;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
+use Nvl\Translatable\Tests\Support\TenantTranslationOwner;
 use Nvl\Translatable\Tests\Support\TenantTranslationProbeJob;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use RuntimeException;
 
-/** Creates isolated fixture storage, adoption state, seed rows, and worker probes. */
+/** Creates isolated native ownership storage, adoption state, and worker probes. */
 final class TenancyConsumerSetupCommand extends Command
 {
     protected $signature = 'tenancy-fixture:setup {--queue=} {--inspect=} {--group=same}';
 
-    protected $description = 'Prepare or inspect the isolated tenancy translation fixture.';
+    protected $description = 'Prepare or inspect the isolated ownership translation fixture.';
 
     /** Run setup, queue publication, or a read-only version inspection. */
     public function handle(
-        TenantAdoptionCoordinator $coordinator,
-        TenantRunner $runner,
-        TenantBoundary $boundary,
+        OwnershipAdoptionCoordinator $coordinator,
+        OwnershipRunner $runner,
+        OwnershipWriter $writer,
         MaintenanceMode $maintenance,
-        TenantContext $context,
+        OwnershipContext $context,
         TranslationResourceVersioner $versioner,
     ): int {
         $inspect = $this->stringOption('inspect');
@@ -48,7 +50,7 @@ final class TenancyConsumerSetupCommand extends Command
         $this->createInfrastructure();
         $maintenance->activate([]);
         try {
-            $operation = new PlatformOperation('fixture.adoption', 'test', 'fixture');
+            $operation = new OwnershipOperation('fixture.adoption', 'test', 'fixture');
             $plan = $coordinator->prepare(['translation-fixtures'], [], $operation);
             $done = false;
             for ($batch = 0; $batch < 20 && ! $done; $batch++) {
@@ -62,8 +64,8 @@ final class TenancyConsumerSetupCommand extends Command
             $maintenance->deactivate();
         }
 
-        $a = $this->seed($runner, $boundary, TenantTranslationScenario::A, 'same', 'en', 'A fallback');
-        $b = $this->seed($runner, $boundary, TenantTranslationScenario::B, 'same', 'bg', 'B requested');
+        $a = $this->seed($runner, $writer, TenantTranslationScenario::A, 'same', 'en', 'A fallback');
+        $b = $this->seed($runner, $writer, TenantTranslationScenario::B, 'same', 'bg', 'B requested');
         $queue = $this->stringOption('queue');
         if ($queue !== null) {
             $this->publishProbes($queue, $this->modelKey($a), $this->modelKey($b), $runner, $context);
@@ -74,17 +76,26 @@ final class TenancyConsumerSetupCommand extends Command
         return self::SUCCESS;
     }
 
-    /** Create core, queue, failure, and probe tables on the configured disposable connection. */
+    /** Create owner, actor, native metadata, queue, and probe tables. */
     private function createInfrastructure(): void
     {
-        $tenancyPath = InstalledVersions::getInstallPath('nvl/tenancy')
-            ?? throw new RuntimeException('The worker fixture requires the installed optional Tenancy package.');
-        $migration = require $tenancyPath.'/database/migrations/tenancy/2026_09_16_000001_nvl_tenancy_create_tenancy_core_tables.php';
+        $schema = DB::connection()->getSchemaBuilder();
+        $schema->create('tenant_test_owners', static fn (Blueprint $table) => $table->uuid('id')->primary());
+        DB::table('tenant_test_owners')->insert([
+            ['id' => TenantTranslationScenario::A],
+            ['id' => TenantTranslationScenario::B],
+        ]);
+        $schema->create('translation_ownership_actors', static fn (Blueprint $table) => $table->unsignedBigInteger('id')->primary());
+        DB::table('translation_ownership_actors')->insert(['id' => 1]);
+
+        $ownershipPath = InstalledVersions::getInstallPath('nvl/ownership')
+            ?? throw new RuntimeException('The worker fixture requires the installed optional Ownership package.');
+        $migration = require $ownershipPath.'/database/migrations/ownership/2026_10_18_000001_nvl_ownership_create_adoption_tables.php';
         if (! is_object($migration) || ! is_callable([$migration, 'up'])) {
-            throw new RuntimeException('The tenancy core migration is invalid.');
+            throw new RuntimeException('The ownership adoption migration is invalid.');
         }
         call_user_func([$migration, 'up']);
-        $schema = DB::connection()->getSchemaBuilder();
+
         $schema->create('jobs', static function (Blueprint $table): void {
             $table->bigIncrements('id');
             $table->string('queue')->index();
@@ -110,22 +121,24 @@ final class TenancyConsumerSetupCommand extends Command
         });
     }
 
-    /** Persist one canonical seed row inside its tenant boundary. */
+    /** Persist one canonical seed row inside its owner admission. */
     private function seed(
-        TenantRunner $runner,
-        TenantBoundary $boundary,
-        string $tenant,
+        OwnershipRunner $runner,
+        OwnershipWriter $writer,
+        string $ownerKey,
         string $group,
         string $locale,
         string $name,
     ): TenantSelfEntry {
-        return $runner->run(new TenantId($tenant), static function () use ($boundary, $group, $locale, $name): TenantSelfEntry {
-            $entry = new TenantSelfEntry(['entry_key' => $group, 'locale' => $locale, 'name' => $name]);
-            $entry->forceFill($boundary->attributes('test.entries'));
-            $entry->saveOrFail();
+        return $runner->run(TenantTranslationOwner::findOrFail($ownerKey), OwnershipActor::firstOrFail(),
+            static fn (): TenantSelfEntry => $writer->create(TenantSelfEntry::class,
+                static function (OwnershipAssignment $assignment) use ($group, $locale, $name): TenantSelfEntry {
+                    $entry = new TenantSelfEntry(['entry_key' => $group, 'locale' => $locale, 'name' => $name]);
+                    $entry->forceFill($assignment->attributes());
+                    $entry->saveOrFail();
 
-            return $entry;
-        });
+                    return $entry;
+                }));
     }
 
     /** Publish valid probes and corrupt only the final stored scalar envelope. */
@@ -133,19 +146,14 @@ final class TenancyConsumerSetupCommand extends Command
         string $queue,
         string $recordA,
         string $recordB,
-        TenantRunner $runner,
-        TenantContext $context,
+        OwnershipRunner $runner,
+        OwnershipContext $context,
     ): void {
-        $uncaptured = new TenantTranslationProbeJob(
-            $recordA,
-            'en',
-            'missing-context',
-            TenantJobEnvelope::capture($context),
-        );
         try {
+            $uncaptured = new TenantTranslationProbeJob($recordA, 'en', 'missing-context', OwnershipJobEnvelope::capture($context));
             Bus::dispatch($uncaptured->onConnection('database')->onQueue($queue));
-            throw new RuntimeException('Missing tenant context unexpectedly dispatched.');
-        } catch (TenantBoundaryViolation) {
+            throw new RuntimeException('Missing ownership context unexpectedly dispatched.');
+        } catch (OwnershipViolation) {
         }
 
         $this->dispatchProbe($runner, TenantTranslationScenario::A, $recordA, 'en', 'a-en', $queue);
@@ -164,54 +172,55 @@ final class TenancyConsumerSetupCommand extends Command
             throw new RuntimeException('The final serialized probe payload is invalid.');
         }
         $data = $payload['data'] ?? null;
-        if (! is_array($data) || ! is_array($data['nvl_tenancy'] ?? null)) {
-            throw new RuntimeException('The final serialized probe has no tenant envelope.');
+        if (! is_array($data) || ! is_array($data['nvl_ownership'] ?? null)
+            || ! is_array($data['nvl_ownership']['owner'] ?? null)) {
+            throw new RuntimeException('The final serialized probe has no ownership envelope.');
         }
-        $data['nvl_tenancy']['tenant_id'] = TenantTranslationScenario::B;
+        $data['nvl_ownership']['owner']['key'] = TenantTranslationScenario::B;
         $payload['data'] = $data;
         $connection->table('jobs')->where('id', $job->id)->update([
             'payload' => json_encode($payload, JSON_THROW_ON_ERROR),
         ]);
     }
 
-    /** Dispatch one scalar probe from an admitted producer tenant. */
+    /** Dispatch one scalar probe from an admitted producer owner. */
     private function dispatchProbe(
-        TenantRunner $runner,
-        string $tenant,
+        OwnershipRunner $runner,
+        string $ownerKey,
         string $record,
         string $locale,
         string $result,
         string $queue,
         bool $throw = false,
     ): void {
-        $runner->run(new TenantId($tenant), static function () use ($record, $locale, $result, $queue, $throw): void {
-            $job = new TenantTranslationProbeJob(
-                $record,
-                $locale,
-                $result,
-                TenantJobEnvelope::capture(app(TenantContext::class)),
-                $throw,
-            );
-            Bus::dispatch($job->onConnection('database')->onQueue($queue));
-        });
+        $runner->run(TenantTranslationOwner::findOrFail($ownerKey), OwnershipActor::firstOrFail(),
+            static function () use ($record, $locale, $result, $queue, $throw): void {
+                $job = new TenantTranslationProbeJob(
+                    $record, $locale, $result,
+                    OwnershipJobEnvelope::capture(app(OwnershipContext::class)),
+                    $throw,
+                );
+                Bus::dispatch($job->onConnection('database')->onQueue($queue));
+            });
     }
 
     /** Print one canonical logical version without mutating fixture state. */
     private function inspect(
-        string $tenant,
+        string $ownerKey,
         string $group,
-        TenantRunner $runner,
+        OwnershipRunner $runner,
         TranslationResourceVersioner $versioner,
     ): int {
-        $result = $runner->run(new TenantId($tenant), static function () use ($group, $versioner): array {
-            $owner = TenantSelfEntry::query()->locale('en')->where('entry_key', $group)->firstOrFail();
+        $result = $runner->run(TenantTranslationOwner::findOrFail($ownerKey), OwnershipActor::firstOrFail(),
+            static function () use ($group, $versioner): array {
+                $owner = TenantSelfEntry::query()->locale('en')->where('entry_key', $group)->firstOrFail();
 
-            return [
-                'driver' => $owner->getConnection()->getDriverName(),
-                'locale_count' => $owner->getAllTranslations()->count(),
-                'version' => $versioner->version($owner),
-            ];
-        });
+                return [
+                    'driver' => $owner->getConnection()->getDriverName(),
+                    'locale_count' => $owner->getAllTranslations()->count(),
+                    'version' => $versioner->version($owner),
+                ];
+            });
         $this->line((string) json_encode($result, JSON_THROW_ON_ERROR));
 
         return self::SUCCESS;

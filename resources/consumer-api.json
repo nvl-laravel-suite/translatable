@@ -5,40 +5,11 @@
         "Nvl\\Translatable\\": "src"
     },
     "symbols": {
-        "Nvl\\Translatable\\Actions\\DeleteTranslationResourceLocaleAction": {
-            "kind": "class",
-            "file": "src/Actions/DeleteTranslationResourceLocaleAction.php",
-            "methods": [
-                "__construct",
-                "execute"
-            ],
-            "properties": [],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Actions\\SyncTranslationResourceAction": {
-            "kind": "class",
-            "file": "src/Actions/SyncTranslationResourceAction.php",
-            "methods": [
-                "__construct",
-                "execute"
-            ],
-            "properties": [],
-            "constants": []
-        },
         "Nvl\\Translatable\\Contracts\\ContentLocalePreferenceResolver": {
             "kind": "interface",
             "file": "src/Contracts/ContentLocalePreferenceResolver.php",
             "methods": [
                 "resolve"
-            ],
-            "properties": [],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Contracts\\DeleteTranslationResourceLocaleContract": {
-            "kind": "interface",
-            "file": "src/Contracts/DeleteTranslationResourceLocaleContract.php",
-            "methods": [
-                "execute"
             ],
             "properties": [],
             "constants": []
@@ -53,15 +24,6 @@
                 "translated",
                 "translationDefinition",
                 "translationResourceKey"
-            ],
-            "properties": [],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Contracts\\SyncTranslationResourceContract": {
-            "kind": "interface",
-            "file": "src/Contracts/SyncTranslationResourceContract.php",
-            "methods": [
-                "execute"
             ],
             "properties": [],
             "constants": []
@@ -102,74 +64,6 @@
                 "allows"
             ],
             "properties": [],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Data\\DeleteTranslationLocaleData": {
-            "kind": "class",
-            "file": "src/Data/DeleteTranslationLocaleData.php",
-            "methods": [
-                "__construct"
-            ],
-            "properties": [
-                "expectedVersion",
-                "locale"
-            ],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Data\\TranslationActorData": {
-            "kind": "class",
-            "file": "src/Data/TranslationActorData.php",
-            "methods": [
-                "__construct",
-                "system"
-            ],
-            "properties": [
-                "id",
-                "system",
-                "type"
-            ],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Data\\TranslationDeleteResultData": {
-            "kind": "class",
-            "file": "src/Data/TranslationDeleteResultData.php",
-            "methods": [
-                "__construct"
-            ],
-            "properties": [
-                "deleted",
-                "id",
-                "locale",
-                "resource",
-                "version"
-            ],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Data\\TranslationMutationData": {
-            "kind": "class",
-            "file": "src/Data/TranslationMutationData.php",
-            "methods": [
-                "__construct"
-            ],
-            "properties": [
-                "expectedVersion",
-                "mode",
-                "translations"
-            ],
-            "constants": []
-        },
-        "Nvl\\Translatable\\Data\\TranslationMutationResultData": {
-            "kind": "class",
-            "file": "src/Data/TranslationMutationResultData.php",
-            "methods": [
-                "__construct"
-            ],
-            "properties": [
-                "id",
-                "locales",
-                "resource",
-                "version"
-            ],
             "constants": []
         },
         "Nvl\\Translatable\\Enums\\Locale": {
@@ -245,7 +139,7 @@
             ],
             "constants": [
                 "Direct",
-                "DomainActionOnly"
+                "OwningServiceOnly"
             ]
         },
         "Nvl\\Translatable\\Enums\\TranslationResourceAbility": {
@@ -311,7 +205,8 @@
                 "schemaVersion"
             ],
             "properties": [
-                "actor",
+                "actorId",
+                "actorType",
                 "locale",
                 "ownerId",
                 "ownerType",
@@ -331,7 +226,8 @@
                 "schemaVersion"
             ],
             "properties": [
-                "actor",
+                "actorId",
+                "actorType",
                 "locales",
                 "mode",
                 "ownerId",
@@ -351,7 +247,8 @@
                 "schemaVersion"
             ],
             "properties": [
-                "actor",
+                "actorId",
+                "actorType",
                 "count",
                 "page",
                 "resource",
@@ -416,7 +313,7 @@
                 "invalid",
                 "package",
                 "publicContext",
-                "requiresDomainAction",
+                "requiresOwningService",
                 "responseCode",
                 "responseHeaders",
                 "stale",
@@ -476,8 +373,6 @@
             "kind": "trait",
             "file": "src/SelfTranslatable.php",
             "methods": [
-                "cloneTranslation",
-                "deleteTranslation",
                 "getAllTranslations",
                 "getAvailableLocales",
                 "getCurrentLocale",
@@ -499,7 +394,6 @@
                 "scopeWithAllTranslations",
                 "scopeWithResolvedTranslations",
                 "setLocale",
-                "setTranslation",
                 "translated",
                 "translationDefinition",
                 "translationOptions",
@@ -599,6 +493,7 @@
                 "__construct",
                 "add",
                 "all",
+                "forModel",
                 "get",
                 "has",
                 "keys",
@@ -612,11 +507,8 @@
             "file": "src/Services/TranslationWriter.php",
             "methods": [
                 "__construct",
-                "delete",
-                "patch",
-                "replace",
-                "sync",
-                "upsert"
+                "deleteLocale",
+                "sync"
             ],
             "properties": [],
             "constants": []

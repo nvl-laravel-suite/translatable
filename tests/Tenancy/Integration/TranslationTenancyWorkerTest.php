@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__, 2).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TenancyTestCase');
+}
+
 use Composer\InstalledVersions;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Filesystem\Filesystem;
-use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
+use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Symfony\Component\Process\Process;
 
@@ -108,7 +112,7 @@ it('restores tenant translation context in a real database queue worker', functi
         ));
         $corruptEnvelopeFailures = array_values(array_filter(
             $failed,
-            static fn (string $exception): bool => str_contains($exception, 'A carried envelope differs from the queued tenant boundary.'),
+            static fn (string $exception): bool => str_contains($exception, 'A carried envelope differs from the queued ownership boundary.'),
         ));
 
         $diagnostics = json_encode([
@@ -143,8 +147,8 @@ it('restores tenant translation context in a real database queue worker', functi
             ->and($translationFailures[0])->toContain(RuntimeException::class, 'translation probe')
             ->and($corruptEnvelopeFailures)->toHaveCount(1, $diagnostics)
             ->and($corruptEnvelopeFailures[0])->toContain(
-                TenantBoundaryViolation::class,
-                'A carried envelope differs from the queued tenant boundary.',
+                OwnershipViolation::class,
+                'A carried envelope differs from the queued ownership boundary.',
             )
             ->and($corruptEnvelopeFailures[0])->not->toContain(ModelNotFoundException::class)
             ->and((int) $pdo->query('select count(*) from jobs')->fetchColumn())->toBe(0, $diagnostics);

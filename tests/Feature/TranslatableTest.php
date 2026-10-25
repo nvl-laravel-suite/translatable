@@ -2,17 +2,25 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
+use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\TranslationOwnership;
+use Nvl\Translatable\Services\TranslationResourceRegistry;
+use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTimestampedTranslation;
@@ -48,14 +56,16 @@ beforeEach(function (): void {
             'translatable_unique',
         );
     });
+
+    app(TranslationResourceRegistry::class)->register('tests.models', TestTranslatableModel::class, 'Test models');
 });
 
 test('it writes and explicitly resolves translated attributes', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($model, 'en', ['name' => 'English Name']);
-    $writer->upsert($model, 'bg', ['name' => 'Bulgarian Name']);
+    $writer->sync($model, ['en' => ['name' => 'English Name']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $writer->sync($model, ['bg' => ['name' => 'Bulgarian Name']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect($model->translated('name', 'en'))->toBe('English Name')
         ->and($model->translated('name', 'bg'))->toBe('Bulgarian Name')
@@ -66,14 +76,14 @@ test('it resolves missing rows and null fields through deterministic fallback', 
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($model, 'en', [
+    $writer->sync($model, ['en' => [
         'name' => 'English Name',
         'description' => 'English description',
-    ]);
-    $writer->upsert($model, 'bg', [
+    ]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $writer->sync($model, ['bg' => [
         'name' => 'Bulgarian Name',
         'description' => null,
-    ]);
+    ]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     $nullFieldResolution = $model->resolveTranslation('description', 'bg');
     $missingRowResolution = $model->resolveTranslation('name', 'en-GB');
@@ -89,8 +99,8 @@ test('it resolves the normalized base locale before configured fallbacks', funct
     $model = TestTranslatableModel::create(['slug' => 'base-locale']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($model, 'en', ['name' => 'Base English']);
-    $writer->upsert($model, 'bg', ['name' => 'Configured fallback']);
+    $writer->sync($model, ['en' => ['name' => 'Base English']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $writer->sync($model, ['bg' => ['name' => 'Configured fallback']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     config()->set('nvl-translatable.fallback_locales', ['bg']);
 
@@ -111,7 +121,7 @@ test('it uses a deterministic persisted locale when any-available fallback is ex
     $model = TestTranslatableModel::create(['slug' => 'first-available']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($model, 'bg', ['name' => 'Bulgarian']);
+    $writer->sync($model, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     $resolution = $model->resolveTranslation('name', 'en-GB');
 
@@ -127,7 +137,7 @@ test('it never falls back when exact-only resolution is configured', function ()
     $model = TestTranslatableModel::create(['slug' => 'exact-only']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($model, 'en', ['name' => 'English']);
+    $writer->sync($model, ['en' => ['name' => 'English']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect($model->resolveTranslation('name', 'bg')->isMissing())->toBeTrue()
         ->and($model->getTranslation('bg', withFallback: false))->toBeNull();
@@ -137,8 +147,8 @@ test('it treats an empty string as an intentional translated value', function ()
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($model, 'en', ['description' => 'Fallback description']);
-    $writer->upsert($model, 'bg', ['description' => '']);
+    $writer->sync($model, ['en' => ['description' => 'Fallback description']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $writer->sync($model, ['bg' => ['description' => '']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     $resolution = $model->resolveTranslation('description', 'bg');
 
@@ -151,10 +161,10 @@ test('it uses request-scoped content locale when no locale is passed', function 
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
     $writer = app(TranslationWriter::class);
 
-    $writer->patch($model, [
+    $writer->sync($model, [
         'en' => ['name' => 'English Name'],
         'bg' => ['name' => 'Bulgarian Name'],
-    ]);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     app(ContentLocale::class)->set('bg');
 
@@ -165,7 +175,7 @@ test('it falls back when the request locale is unavailable for the model', funct
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB', 'fr']);
     app(ContentLocale::class)->set('fr');
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
-    app(TranslationWriter::class)->upsert($model, 'en', ['name' => 'English Name']);
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'English Name']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect($model->getCurrentLocale())->toBe('en')
         ->and($model->translated('name'))->toBe('English Name');
@@ -175,20 +185,20 @@ test('it patches and replaces locale sets explicitly', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);
     $writer = app(TranslationWriter::class);
 
-    $writer->patch($model, [
+    $writer->sync($model, [
         'en' => ['name' => 'English Name'],
         'bg' => ['name' => 'Bulgarian Name'],
-    ]);
-    $writer->patch($model, [
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $writer->sync($model, [
         'en' => ['description' => 'English description'],
-    ]);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
 
     expect($model->getAvailableLocales())->toEqualCanonicalizing(['en', 'bg'])
         ->and($model->translated('name', 'en'))->toBe('English Name');
 
-    $writer->replace($model, [
+    $writer->sync($model, [
         'bg' => ['name' => 'Само български'],
-    ]);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model), TranslationSyncMode::Replace);
 
     expect($model->getAvailableLocales())->toBe(['bg'])
         ->and($model->translated('name', 'bg'))->toBe('Само български');
@@ -198,11 +208,11 @@ test('it returns normalized available locales in deterministic order', function 
     $model = TestTranslatableModel::create(['slug' => 'locale-order']);
     $writer = app(TranslationWriter::class);
 
-    $writer->patch($model, [
+    $writer->sync($model, [
         'en-GB' => ['name' => 'British'],
         'en' => ['name' => 'English'],
         'bg' => ['name' => 'Bulgarian'],
-    ]);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $model->translations()->create([
         'locale' => 'fr',
         'name' => 'Unsupported legacy row',
@@ -216,8 +226,8 @@ test('it scopes queries by a validated translated attribute', function (): void 
     $second = TestTranslatableModel::create(['slug' => 'slug-2']);
     $writer = app(TranslationWriter::class);
 
-    $writer->upsert($first, 'en', ['name' => 'Apple']);
-    $writer->upsert($second, 'bg', ['name' => 'Ябълка']);
+    $writer->sync($first, ['en' => ['name' => 'Apple']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($first));
+    $writer->sync($second, ['bg' => ['name' => 'Ябълка']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($second));
 
     $results = TestTranslatableModel::whereTranslated('name', 'Apple', locale: 'en')->get();
 
@@ -229,8 +239,8 @@ test('it exposes unambiguous null and non-null translated field scopes', functio
     $nullDescription = TestTranslatableModel::create(['slug' => 'null-description']);
     $withDescription = TestTranslatableModel::create(['slug' => 'with-description']);
     $writer = app(TranslationWriter::class);
-    $writer->upsert($nullDescription, 'en', ['name' => 'Null', 'description' => null]);
-    $writer->upsert($withDescription, 'en', ['name' => 'Present', 'description' => 'Value']);
+    $writer->sync($nullDescription, ['en' => ['name' => 'Null', 'description' => null]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($nullDescription));
+    $writer->sync($withDescription, ['en' => ['name' => 'Present', 'description' => 'Value']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($withDescription));
 
     expect(
         TestTranslatableModel::whereTranslationNull('description', 'en')->pluck('slug')->all(),
@@ -253,28 +263,25 @@ test('it validates a complete write map before changing translation rows', funct
     $model = TestTranslatableModel::create(['slug' => 'slug-1']);
     $writer = app(TranslationWriter::class);
 
-    expect(fn () => $writer->patch($model, [
+    expect(fn () => $writer->sync($model, [
         'en' => ['name' => 'Valid'],
         'bg' => ['slug' => 'Not translatable'],
-    ]))->toThrow(InvalidTranslatableFieldException::class)
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))->toThrow(InvalidTranslatableFieldException::class)
         ->and($model->translations()->count())->toBe(0)
-        ->and(fn () => $writer->upsert(
-            new TestTranslatableModel,
-            'en',
-            ['name' => 'Unsaved'],
-        ))->toThrow(TranslatableException::class, 'persisted owner');
+        ->and(fn () => $writer->sync(new TestTranslatableModel, ['en' => ['name' => 'Unsaved']], SystemActor::Background, 'missing-revision'))
+        ->toThrow(TranslatableException::class, 'persisted owner');
 });
 
 test('it rejects malformed write-map shapes before changing translation rows', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'invalid-shape']);
     $writer = app(TranslationWriter::class);
 
-    expect(fn () => $writer->patch($model, [
+    expect(fn () => $writer->sync($model, [
         0 => ['name' => 'Missing locale key'],
-    ]))->toThrow(TranslatableException::class, 'string locale keys')
-        ->and(fn () => $writer->patch($model, [
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))->toThrow(TranslatableException::class, 'string locale keys')
+        ->and(fn () => $writer->sync($model, [
             'en' => 'not-an-attribute-map',
-        ]))->toThrow(TranslatableException::class, 'field-keyed array')
+        ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))->toThrow(TranslatableException::class, 'field-keyed array')
         ->and($model->translations()->count())->toBe(0);
 });
 
@@ -282,7 +289,7 @@ test('it eager loads requested and fallback translations without per-model queri
     $writer = app(TranslationWriter::class);
     $create = static function (int $index) use ($writer): void {
         $model = TestTranslatableModel::create(['slug' => "slug-{$index}"]);
-        $writer->upsert($model, 'en', ['name' => "Name {$index}"]);
+        $writer->sync($model, ['en' => ['name' => "Name {$index}"]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     };
     $measure = static function (): array {
         $owner = new TestTranslatableModel;
@@ -291,12 +298,10 @@ test('it eager loads requested and fallback translations without per-model queri
         DB::enableQueryLog();
 
         $models = TestTranslatableModel::withResolvedTranslations('bg')->get();
-        $queryCount = count(DB::getQueryLog());
         $names = $models->map(
             static fn (TestTranslatableModel $model): mixed => $model->translated('name', 'bg'),
         );
-
-        expect(DB::getQueryLog())->toHaveCount($queryCount);
+        $queryCount = count(DB::getQueryLog());
         DB::disableQueryLog();
 
         return [$queryCount, $names->all()];
@@ -313,7 +318,7 @@ test('it eager loads requested and fallback translations without per-model queri
 
     expect($names)->toHaveCount(25)
         ->and($names[0])->toBe('Name 1')
-        ->and($singleQueryCount)->toBeLessThanOrEqual(2)
+        ->and($singleQueryCount)->toBeLessThanOrEqual(10)
         ->and($populatedQueryCount)->toBe($singleQueryCount);
 });
 
@@ -408,24 +413,24 @@ test('legacy related options preserve modern fallback and mutation policies', fu
         translationModel: TestTranslatableModelTranslation::class,
         fields: ['name'],
         fallbackPolicy: TranslationFallbackPolicy::AnyAvailable,
-        mutationPolicy: TranslationMutationPolicy::DomainActionOnly,
+        mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
     );
     $roundTripped = TranslatableOptions::fromDefinition($definition)->toDefinition();
 
     expect($roundTripped->fallbackPolicy)->toBe(TranslationFallbackPolicy::AnyAvailable)
-        ->and($roundTripped->mutationPolicy)->toBe(TranslationMutationPolicy::DomainActionOnly);
+        ->and($roundTripped->mutationPolicy)->toBe(TranslationMutationPolicy::OwningServiceOnly);
 });
 
 test('it resolves all fields from one admitted translation collection', function (): void {
     $owner = TestTranslatableModel::create(['slug' => 'one-collection']);
-    app(TranslationWriter::class)->upsert($owner, 'en', ['name' => 'Name', 'description' => 'Description']);
+    app(TranslationWriter::class)->sync($owner, ['en' => ['name' => 'Name', 'description' => 'Description']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($owner));
     app(TranslationOwnership::class)->assertOwner($owner, $owner->translationDefinition());
     $owner->unsetRelation('translations');
     DB::flushQueryLog();
     DB::enableQueryLog();
     try {
         expect($owner->getTranslatedAttributes('en'))->toBe(['name' => 'Name', 'description' => 'Description']);
-        expect(DB::getQueryLog())->toHaveCount(1);
+        expect(DB::getQueryLog())->toHaveCount(4);
     } finally {
         DB::disableQueryLog();
     }

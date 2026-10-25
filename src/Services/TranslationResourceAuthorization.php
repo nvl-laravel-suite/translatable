@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Services;
 
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
-use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\TranslationResourceDefinition;
@@ -27,11 +28,16 @@ final readonly class TranslationResourceAuthorization
      * Throw when an operation is not permitted.
      */
     public function authorize(
-        TranslationActorData $actor,
+        Authenticatable|SystemActor $actor,
         TranslationResourceAbility $ability,
         TranslationResourceDefinition $resource,
         ?Model $record = null,
     ): void {
+        if ($actor instanceof Authenticatable
+            && ($actor->getAuthIdentifier() === null || ($actor instanceof Model && ! $actor->exists))) {
+            throw TranslationResourceException::unauthorized($resource->key, $ability->value);
+        }
+
         $resourceDecision = $resource->authorize($actor, $ability, $record);
         $allowed = $resourceDecision
             ?? $this->authorizer->allows($actor, $ability, $resource, $record);

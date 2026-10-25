@@ -10,7 +10,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Nvl\Support\Ownership\Compatibility\LegacyResourceDefinitions;
 use Nvl\Support\Ownership\Contracts\OwnershipBoundary;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
@@ -27,7 +26,6 @@ final readonly class RelatedTranslationStore
         private TranslationOwnership $ownership,
         private OwnershipBoundary $boundary,
         private OwnershipResourceRegistry $resources,
-        private LegacyResourceDefinitions $legacy,
     ) {}
 
     /**
@@ -133,10 +131,13 @@ final readonly class RelatedTranslationStore
      */
     public function ownerIdentity(Model $owner, RelatedTranslationDefinition $definition): array
     {
+        if (($admitted = $this->ownership->admittedOwnerIdentity($owner, $definition)) !== null) {
+            return $admitted;
+        }
         $attributes = $this->ownership->childAttributes($owner, $definition);
         $key = $owner->getAttribute($definition->ownerKey);
         if ($attributes !== []) {
-            if ($owner->isDirty([$owner->getKeyName(), $definition->ownerKey, 'tenant_id', 'ownership_key'])) {
+            if ($owner->isDirty([$owner->getKeyName(), $definition->ownerKey, 'owner_scope_key', 'owner_reference'])) {
                 throw $this->ownership->violation('Translation owner identity cannot be changed in memory.');
             }
             $key = $owner->getConnection()->table($owner->getTable())
@@ -170,7 +171,9 @@ final readonly class RelatedTranslationStore
         if ($canonical->getConnectionName() === null) {
             $canonical->setConnection($owner->getConnectionName());
         }
-        $this->scopeQuery($canonical->newQuery(), $owner, $definition);
+        if ($this->ownership->admittedOwnerIdentity($owner, $definition) === null) {
+            $this->scopeQuery($canonical->newQuery(), $owner, $definition);
+        }
         foreach ($rows as $row) {
             if ($row::class !== $canonical::class || $row->getTable() !== $canonical->getTable()
                 || $row->getConnection() !== $canonical->getConnection()) {
@@ -194,6 +197,9 @@ final readonly class RelatedTranslationStore
      */
     public function scopeQuery(Builder $query, Model $owner, RelatedTranslationDefinition $definition): Builder
     {
+        if ($query->getQuery()->getConnection() !== $owner->getConnection()) {
+            throw $this->ownership->violation('Translation relations require the same actual source connection.');
+        }
         if ($definition->ownershipResource === null) {
             $this->ownership->query($owner->newQuery(), $definition);
 
@@ -205,15 +211,10 @@ final readonly class RelatedTranslationStore
             || $query->getQuery()->getConnection() !== $owner->getConnection()) {
             throw $this->ownership->violation('Translation relations require canonical owner storage.');
         }
-        $childResource = $this->legacy->forModel($canonical::class);
-        foreach ($this->resources->all() as $resource) {
-            if ($resource->model === $canonical::class) {
-                $childResource = $resource;
-                break;
-            }
-        }
-        if ($childResource === null) {
-            throw $this->ownership->violation('Related translation storage requires an explicit canonical resource.');
+        $childResource = $this->resources->forModel($canonical);
+        if ($childResource->ownership->strategy !== 'inherited'
+            || ! in_array($definition->ownershipResource, $childResource->parents(), true)) {
+            throw $this->ownership->violation('Related translation storage must inherit from its canonical owner resource.');
         }
         $this->boundary->query($query, $childResource->key);
         $owners = $this->ownership->query(

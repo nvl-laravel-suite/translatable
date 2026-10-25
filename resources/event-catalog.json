@@ -33,8 +33,14 @@
           "required": true
         },
         {
-          "name": "actor",
-          "type": "Nvl\\Translatable\\Data\\TranslationActorData",
+          "name": "actorType",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "actorId",
+          "type": "int|string",
           "visibility": "public",
           "required": true
         },
@@ -76,8 +82,12 @@
           "type": "string"
         },
         {
-          "name": "actor",
-          "type": "Nvl\\Translatable\\Data\\TranslationActorData"
+          "name": "actorType",
+          "type": "string"
+        },
+        {
+          "name": "actorId",
+          "type": "int|string"
         },
         {
           "name": "previousVersion",
@@ -98,10 +108,10 @@
       "aliases": [],
       "producers": [
         {
-          "path": "packages/nvl/translatable/src/Actions/DeleteTranslationResourceLocaleAction.php",
+          "path": "packages/nvl/translatable/src/Services/TranslationWriter.php",
           "trigger": "Owner locale deleted.",
-          "connection": "$owner->getConnection()",
-          "construction_expression": "new TranslationResourceLocaleDeleted( resource: $resourceKey, ownerType: $owner->getMorphClass(), ownerId: $resourceId, locale: $normalizedLocale, actor: $actor, previousVersion: $previousVersion, version: $version, )"
+          "connection": "$record->getConnection()",
+          "construction_expression": "new TranslationResourceLocaleDeleted(resource: $resource->key, ownerType: $record->getMorphClass(), ownerId: $record->translationResourceKey(), locale: $normalizedLocale, actorType: $actorIdentity['type'], actorId: $actorIdentity['id'], previousVersion: $previousVersion, version: $this->versioner->version($record))"
         }
       ],
       "security_notes": [
@@ -145,8 +155,14 @@
           "required": true
         },
         {
-          "name": "actor",
-          "type": "Nvl\\Translatable\\Data\\TranslationActorData",
+          "name": "actorType",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "actorId",
+          "type": "int|string",
           "visibility": "public",
           "required": true
         },
@@ -193,8 +209,12 @@
           "type": "Nvl\\Translatable\\Enums\\TranslationSyncMode"
         },
         {
-          "name": "actor",
-          "type": "Nvl\\Translatable\\Data\\TranslationActorData"
+          "name": "actorType",
+          "type": "string"
+        },
+        {
+          "name": "actorId",
+          "type": "int|string"
         },
         {
           "name": "previousVersion",
@@ -215,10 +235,10 @@
       "aliases": [],
       "producers": [
         {
-          "path": "packages/nvl/translatable/src/Actions/SyncTranslationResourceAction.php",
+          "path": "packages/nvl/translatable/src/Services/TranslationWriter.php",
           "trigger": "Owner localized resource synchronized.",
-          "connection": "$owner->getConnection()",
-          "construction_expression": "new TranslationResourceSynced( resource: $resourceKey, ownerType: $owner->getMorphClass(), ownerId: $resourceId, locales: $locales, mode: $mutation->mode, actor: $actor, previousVersion: $previousVersion, version: $version, )"
+          "connection": "$record->getConnection()",
+          "construction_expression": "new TranslationResourceSynced(resource: $resource->key, ownerType: $record->getMorphClass(), ownerId: $record->translationResourceKey(), locales: array_keys($normalized), mode: $mode, actorType: $actorIdentity['type'], actorId: $actorIdentity['id'], previousVersion: $previousVersion, version: $version)"
         }
       ],
       "security_notes": [
@@ -249,8 +269,14 @@
           "required": true
         },
         {
-          "name": "actor",
-          "type": "Nvl\\Translatable\\Data\\TranslationActorData",
+          "name": "actorType",
+          "type": "string",
+          "visibility": "public",
+          "required": true
+        },
+        {
+          "name": "actorId",
+          "type": "int|string",
           "visibility": "public",
           "required": true
         },
@@ -276,8 +302,12 @@
           "type": "int"
         },
         {
-          "name": "actor",
-          "type": "Nvl\\Translatable\\Data\\TranslationActorData"
+          "name": "actorType",
+          "type": "string"
+        },
+        {
+          "name": "actorId",
+          "type": "int|string"
         },
         {
           "name": "schemaVersion",
@@ -293,7 +323,7 @@
           "path": "packages/nvl/translatable/src/Services/TranslationResourceGatherer.php",
           "trigger": "Localized resources read page gathered.",
           "connection": "$model->getConnection()",
-          "construction_expression": "new TranslationResourcesGathered( resource: $resourceKey, page: $paginator->currentPage(), count: $paginator->count(), actor: $actor, )"
+          "construction_expression": "new TranslationResourcesGathered(resource: $resourceKey, page: $paginator->currentPage(), count: $paginator->count(), actorType: $actorIdentity['type'], actorId: $actorIdentity['id'])"
         }
       ],
       "security_notes": [
@@ -303,46 +333,6 @@
     }
   ],
   "value_types": [
-    {
-      "class": "Nvl\\Translatable\\Data\\TranslationActorData",
-      "source": "packages/nvl/translatable/src/Data/TranslationActorData.php",
-      "constructor_fields": [
-        {
-          "name": "type",
-          "type": "string",
-          "visibility": "public",
-          "required": true
-        },
-        {
-          "name": "id",
-          "type": "int|string|null",
-          "visibility": "public",
-          "required": true
-        },
-        {
-          "name": "system",
-          "type": "bool",
-          "visibility": "public",
-          "required": false,
-          "default_expression": "false"
-        }
-      ],
-      "public_fields": [
-        {
-          "name": "type",
-          "type": "string"
-        },
-        {
-          "name": "id",
-          "type": "int|string|null"
-        },
-        {
-          "name": "system",
-          "type": "bool"
-        }
-      ],
-      "kind": "value_object"
-    },
     {
       "class": "Nvl\\Translatable\\Enums\\TranslationSyncMode",
       "source": "packages/nvl/translatable/src/Enums/TranslationSyncMode.php",

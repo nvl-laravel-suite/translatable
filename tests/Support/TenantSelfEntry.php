@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Nvl\Support\Ownership\Contracts\Ownable;
+use Nvl\Support\Ownership\Traits\HasOwnership;
+use Nvl\Support\Ownership\ValueObjects\OwnershipDefinition;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\SelfTranslatable;
 use Nvl\Translatable\SelfTranslationDefinition;
@@ -24,11 +27,17 @@ use Nvl\Translatable\SelfTranslationDefinition;
  * @property Carbon|null $updated_at Update time.
  * @property Carbon|null $deleted_at Deletion time.
  */
-final class TenantSelfEntry extends Model implements SelfTranslatableModel
+final class TenantSelfEntry extends Model implements Ownable, SelfTranslatableModel
 {
+    use HasOwnership;
     use HasUuids;
     use SelfTranslatable;
     use SoftDeletes;
+
+    public static function ownershipDefinition(): OwnershipDefinition
+    {
+        return OwnershipDefinition::column(TenantTranslationOwner::class, 'tenant_id');
+    }
 
     protected $table = 'tenant_test_entries';
 

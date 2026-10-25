@@ -6,10 +6,12 @@ namespace Nvl\Translatable\Tests\Fixtures;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Redis;
-use Nvl\Support\Tenancy\ValueObjects\TenantId;
-use Nvl\Tenancy\Services\TenantRunner;
+use Nvl\Ownership\Services\OwnershipRunner;
+use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Support\OwnershipActor;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
+use Nvl\Translatable\Tests\Support\TenantTranslationOwner;
 use RuntimeException;
 
 /** Runs one independently booted writer after a shared Redis barrier releases. */
@@ -20,7 +22,7 @@ final class TenancyConsumerRaceCommand extends Command
     protected $description = 'Compete to create one tenant translation locale.';
 
     /** Wait with a bounded deadline, then perform the canonical transactional write. */
-    public function handle(TenantRunner $runner, TranslationWriter $writer): int
+    public function handle(OwnershipRunner $runner, TranslationWriter $writer, TranslationResourceVersioner $versioner): int
     {
         $tenant = $this->stringArgument('tenant');
         $group = $this->stringArgument('group');
@@ -36,11 +38,9 @@ final class TenancyConsumerRaceCommand extends Command
             usleep(20_000);
         }
 
-        $runner->run(new TenantId($tenant), static function () use ($writer, $group, $locale, $value): void {
+        $runner->run(TenantTranslationOwner::findOrFail($tenant), OwnershipActor::firstOrFail(), static function () use ($writer, $versioner, $group, $locale, $value): void {
             $owner = TenantSelfEntry::query()->locale('en')->where('entry_key', $group)->firstOrFail();
-            $owner->getConnection()->transaction(
-                static fn () => $writer->upsert($owner, $locale, ['name' => $value]),
-            );
+            $writer->sync($owner, [$locale => ['name' => $value]], OwnershipActor::firstOrFail(), $versioner->version($owner));
         });
         $driver = config('database.default');
         if (! is_string($driver)) {

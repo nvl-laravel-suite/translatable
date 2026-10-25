@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Services;
 
 use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\OwnerRegistry;
-use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\TranslationResourceDefinition;
@@ -34,7 +35,7 @@ final class TranslationResourceRegistry
      * @param  string  $modelClass  Shared owner alias or compatibility model class
      * @param  list<string>  $searchableColumns
      * @param  list<string>  $displayColumns
-     * @param  (Closure(TranslationActorData, TranslationResourceAbility, ?Model): bool)|null  $authorization
+     * @param  (Closure(Authenticatable|SystemActor, TranslationResourceAbility, ?Model): bool)|null  $authorization
      * @param  (Closure(Builder<Model>): Builder<Model>)|null  $queryScope
      */
     public function register(
@@ -92,6 +93,22 @@ final class TranslationResourceRegistry
     {
         return $this->resources[$key]
             ?? throw TranslationResourceException::unknown($key, $this->keys());
+    }
+
+    /** Resolve the exact registered concrete model without inferring a resource from its table. */
+    public function forModel(Model $model): TranslationResourceDefinition
+    {
+        $found = null;
+        foreach ($this->resources as $resource) {
+            if ($resource->modelClass === $model::class) {
+                if ($found !== null) {
+                    throw TranslationResourceException::invalid('The translation model has multiple resource registrations; provide its resource key.');
+                }
+                $found = $resource;
+            }
+        }
+
+        return $found ?? throw TranslationResourceException::invalid('The translation model is not registered as a resource.');
     }
 
     /**

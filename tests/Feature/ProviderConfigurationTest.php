@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
-use Nvl\Data\Services\TypeScriptSourceRegistry;
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
@@ -35,6 +38,5 @@ test('configured resources reject malformed metadata instead of silently default
 
     expect(fn () => $provider->boot(
         app(TranslationResourceRegistry::class),
-        app(TypeScriptSourceRegistry::class),
     ))->toThrow(TranslationResourceException::class, 'array of strings');
 });

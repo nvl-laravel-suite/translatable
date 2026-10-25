@@ -2,8 +2,12 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Illuminate\Database\Eloquent\Relations\Relation;
-use Nvl\Translatable\Data\TranslationActorData;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
@@ -31,5 +35,5 @@ test('translation resource keys reference shared owners while keeping authorizat
     expect($resource->newModel())->toBeInstanceOf(TestTranslatableModel::class)
         ->and($registry->has('article'))->toBeFalse()
         ->and($resource->displayColumns)->toBe(['slug'])
-        ->and($resource->authorize(TranslationActorData::system('test'), TranslationResourceAbility::View, null))->toBeFalse();
+        ->and($resource->authorize(SystemActor::Background, TranslationResourceAbility::View, null))->toBeFalse();
 });

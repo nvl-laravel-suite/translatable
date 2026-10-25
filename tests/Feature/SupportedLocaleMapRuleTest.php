@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Illuminate\Support\Facades\Validator;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Rules\SupportedLocaleMapRule;

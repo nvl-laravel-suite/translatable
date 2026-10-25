@@ -147,7 +147,7 @@ final readonly class SelfTranslationStore
         $identity = $this->ownership->childAttributes($owner, $definition);
         $group = $owner->translationResourceKey();
         if ($identity !== []) {
-            if ($owner->isDirty([$owner->getKeyName(), $definition->groupKey, $definition->localeKey, 'tenant_id', 'ownership_key'])) {
+            if ($owner->isDirty([$owner->getKeyName(), $definition->groupKey, $definition->localeKey, 'owner_scope_key', 'owner_reference'])) {
                 throw $this->ownership->violation('Translation group identity cannot be changed in memory.');
             }
             $group = $owner->getConnection()->table($owner->getTable())
@@ -167,7 +167,8 @@ final readonly class SelfTranslationStore
                         throw $this->ownership->violation('Loaded translations do not use canonical group storage.');
                     }
                     foreach ($identity as $column => $value) {
-                        if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
+                        if (! $this->sameIdentity($row->getAttribute($column), $value)
+                            || ! $this->sameIdentity($row->getRawOriginal($column), $value)) {
                             throw $this->ownership->violation('Loaded translations do not belong to the canonical group.');
                         }
                     }
@@ -309,5 +310,14 @@ final readonly class SelfTranslationStore
         }
 
         return $query;
+    }
+
+    /** Compare PDO scalar forms while keeping distinct textual keys distinct. */
+    private function sameIdentity(mixed $actual, mixed $expected): bool
+    {
+        return $actual === $expected
+            || ((is_int($actual) || is_string($actual))
+                && (is_int($expected) || is_string($expected))
+                && (string) $actual === (string) $expected);
     }
 }

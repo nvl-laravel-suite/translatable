@@ -5,12 +5,9 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Console\Commands;
 
 use Illuminate\Console\Command;
-use Nvl\Translatable\Data\TranslationActorData;
-use Nvl\Translatable\Data\TranslationResourceRecordData;
-use Nvl\Translatable\Data\TranslationResourceSummaryData;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
-use Nvl\Translatable\TranslationResourceQuery;
 
 /**
  * Lists registered translation resources or gathers their normalized records.
@@ -35,7 +32,7 @@ final class GatherTranslationResourcesCommand extends Command
         TranslationResourceGatherer $gatherer,
     ): int {
         $resource = $this->argument('resource');
-        $actor = TranslationActorData::system('console');
+        $actor = SystemActor::Background;
 
         if (! is_string($resource) || $resource === '') {
             return $this->renderSummaries($gatherer, $actor);
@@ -46,23 +43,19 @@ final class GatherTranslationResourcesCommand extends Command
         $paginator = $gatherer->gather(
             $resource,
             $actor,
-            new TranslationResourceQuery(
-                search: $this->stringOption('search'),
-                missingLocale: $this->stringOption('missing'),
-                page: max(1, (int) $this->option('page')),
-                perPage: min(
-                    $definition->maximumPageSize,
-                    500,
-                    max(1, (int) $this->option('per-page')),
-                ),
-            ),
+            [
+                'search' => $this->stringOption('search'),
+                'missing_locale' => $this->stringOption('missing'),
+                'page' => max(1, (int) $this->option('page')),
+                'per_page' => min($definition->maximumPageSize, 500, max(1, (int) $this->option('per-page'))),
+            ],
         );
 
         if ((bool) $this->option('json')) {
             $this->line((string) json_encode([
                 'resource' => $definition->metadata([]),
                 'data' => array_map(
-                    static fn (TranslationResourceRecordData $record): array => $record->toArray(),
+                    static fn (array $record): array => $record,
                     $paginator->items(),
                 ),
                 'pagination' => [
@@ -79,11 +72,11 @@ final class GatherTranslationResourcesCommand extends Command
         $this->table(
             ['ID', 'Label', 'Translated locales', 'Missing locales'],
             collect($paginator->items())
-                ->map(static fn (TranslationResourceRecordData $record): array => [
-                    (string) $record->id,
-                    $record->label,
-                    implode(', ', $record->translatedLocales),
-                    implode(', ', $record->missingLocales),
+                ->map(static fn (array $record): array => [
+                    (string) $record['id'],
+                    $record['label'],
+                    implode(', ', $record['translatedLocales']),
+                    implode(', ', $record['missingLocales']),
                 ])
                 ->all(),
         );
@@ -97,14 +90,14 @@ final class GatherTranslationResourcesCommand extends Command
      */
     private function renderSummaries(
         TranslationResourceGatherer $gatherer,
-        TranslationActorData $actor,
+        SystemActor $actor,
     ): int {
         $summaries = $gatherer->summaries($actor);
 
         if ((bool) $this->option('json')) {
             $this->line((string) json_encode(
                 array_map(
-                    static fn (TranslationResourceSummaryData $summary): array => $summary->toArray(),
+                    static fn (array $summary): array => $summary,
                     $summaries,
                 ),
                 JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
@@ -116,12 +109,12 @@ final class GatherTranslationResourcesCommand extends Command
         $this->table(
             ['Resource', 'Label', 'Model', 'Fields', 'Records'],
             array_map(
-                static fn (TranslationResourceSummaryData $summary): array => [
-                    $summary->key,
-                    $summary->label,
-                    $summary->model,
-                    implode(', ', $summary->fields),
-                    $summary->total,
+                static fn (array $summary): array => [
+                    $summary['key'],
+                    $summary['label'],
+                    $summary['model'],
+                    implode(', ', $summary['fields']),
+                    $summary['total'],
                 ],
                 $summaries,
             ),

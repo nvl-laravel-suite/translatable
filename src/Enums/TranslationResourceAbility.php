@@ -4,14 +4,11 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Enums;
 
-use Spatie\TypeScriptTransformer\Attributes\TypeScript;
-
 /**
  * Abilities enforced by the central translation registry.
  *
  * @api
  */
-#[TypeScript]
 enum TranslationResourceAbility: string
 {
     case List = 'list';

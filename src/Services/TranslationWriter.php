@@ -4,22 +4,28 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Services;
 
-use Closure;
+use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Nvl\Support\Contracts\LocaleCatalog;
-use Nvl\Support\Ownership\Contracts\OwnershipContext;
-use Nvl\Support\Ownership\Enums\OwnershipContextMode;
+use Nvl\Support\Enums\SystemActor;
+use Nvl\Support\Events\DomainEventDispatcher;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
+use Nvl\Translatable\Enums\TranslationMutationPolicy;
+use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Enums\TranslationSyncMode;
+use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
+use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
+use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\TranslationDefinition;
-use Throwable;
+use Nvl\Translatable\TranslationResourceDefinition;
 
 /**
  * Validates and persists translation maps through the model's declared storage strategy.
@@ -36,167 +42,164 @@ final readonly class TranslationWriter
         private RelatedTranslationStore $relatedStore,
         private SelfTranslationStore $selfStore,
         private TranslationPayloadValidator $payloadValidator,
-        private ?OwnershipContext $ownership = null,
+        private TranslationOwnership $ownership,
+        private TranslationResourceRegistry $resources,
+        private TranslationResourceAuthorization $authorization,
+        private TranslationResourceVersioner $versioner,
+        private TranslationResourceLocator $locator,
+        private Repository $config,
+        private DomainEventDispatcher $domainEvents,
     ) {}
-
-    /**
-     * Create or update one locale after filtering values to declared translated fields.
-     *
-     * @param  array<string, mixed>  $attributes
-     */
-    public function upsert(
-        Model&TranslatableResourceModel $owner,
-        string $locale,
-        array $attributes,
-    ): Model {
-        return $this->within($owner, function () use ($owner, $locale, $attributes): Model {
-            $this->assertPersistedResource($owner);
-            $definition = $owner->translationDefinition();
-            $this->payloadValidator->validate($definition, [$locale => $attributes]);
-            $normalizedLocale = $definition->assertLocale(
-                $this->locales->assertSupported($locale),
-            );
-            $this->assertDeclaredFields($definition, $attributes);
-            $translation = $this->storeUpsert(
-                $owner,
-                $definition,
-                $normalizedLocale,
-                $attributes,
-            );
-            $this->refreshLoadedTranslations($owner);
-
-            return $translation;
-        });
-    }
-
-    /**
-     * Patch supplied locales while preserving omitted translation rows.
-     *
-     * @param  array<string, array<string, mixed>>  $translations
-     * @return Collection<int, Model>
-     */
-    public function patch(
-        Model&TranslatableResourceModel $owner,
-        array $translations,
-    ): Collection {
-        return $this->within($owner, function () use ($owner, $translations): Collection {
-            $normalizedTranslations = $this->normalizeTranslationMap($owner, $translations);
-            $written = new Collection;
-
-            foreach ($normalizedTranslations as $locale => $attributes) {
-                $written->push($this->storeUpsert(
-                    $owner,
-                    $owner->translationDefinition(),
-                    $locale,
-                    $attributes,
-                ));
-            }
-
-            $this->refreshLoadedTranslations($owner);
-
-            return $written;
-        });
-    }
-
-    /**
-     * Replace all translation rows with the supplied locale set.
-     *
-     * @param  array<string, array<string, mixed>>  $translations
-     * @return Collection<int, Model>
-     */
-    public function replace(
-        Model&TranslatableResourceModel $owner,
-        array $translations,
-    ): Collection {
-        return $this->within($owner, function () use ($owner, $translations): Collection {
-            $normalizedTranslations = $this->normalizeTranslationMap($owner, $translations);
-            $written = new Collection;
-
-            foreach ($normalizedTranslations as $locale => $attributes) {
-                $written->push($this->storeUpsert(
-                    $owner,
-                    $owner->translationDefinition(),
-                    $locale,
-                    $attributes,
-                ));
-            }
-
-            $this->deleteExcept($owner, array_keys($normalizedTranslations));
-            $this->refreshLoadedTranslations($owner);
-
-            return $written;
-        });
-    }
 
     /**
      * Synchronize translations using an explicit patch or replace contract.
      *
      * @param  array<string, array<string, mixed>>  $translations
-     * @return Collection<int, Model>
+     * @return Model&TranslatableResourceModel
      */
     public function sync(
         Model&TranslatableResourceModel $owner,
         array $translations,
+        Authenticatable|SystemActor $actor,
+        string $expectedVersion,
         TranslationSyncMode $mode = TranslationSyncMode::Patch,
-    ): Collection {
-        return match ($mode) {
-            TranslationSyncMode::Patch => $this->patch($owner, $translations),
-            TranslationSyncMode::Replace => $this->replace($owner, $translations),
-        };
+        ?string $resourceKey = null,
+    ): Model {
+        $this->assertPersistedResource($owner);
+        $resource = $this->resolveResource($owner, $resourceKey);
+        $this->assertActor($actor);
+
+        try {
+            return $owner->getConnection()->transaction(function () use ($owner, $translations, $actor, $expectedVersion, $mode, $resource): Model {
+                $this->ownership->lockOwner($owner, $owner->translationDefinition());
+                $record = $this->locator->lock($resource, $owner->translationResourceKey());
+                $this->authorization->authorize($actor, TranslationResourceAbility::Synchronize, $resource, $record);
+                $this->assertDirectMutation($record, $resource->key);
+                $previousVersion = $this->versioner->version($record);
+                $this->assertVersion($resource->key, $previousVersion, $expectedVersion);
+                $normalized = $this->normalizeTranslationMap($record, $translations);
+
+                foreach ($normalized as $locale => $attributes) {
+                    $this->storeUpsert($record, $record->translationDefinition(), $locale, $attributes);
+                }
+                if ($mode === TranslationSyncMode::Replace) {
+                    $this->deleteExcept($record, array_keys($normalized));
+                }
+
+                $record = $this->locator->lock($resource, $owner->translationResourceKey());
+                $this->locator->loadTranslations(new Collection([$record]));
+                $version = $this->versioner->version($record);
+                $actorIdentity = TranslationEventActor::identity($actor);
+                $this->domainEvents->dispatch(new TranslationResourceSynced(
+                    resource: $resource->key,
+                    ownerType: $record->getMorphClass(),
+                    ownerId: $record->translationResourceKey(),
+                    locales: array_keys($normalized),
+                    mode: $mode,
+                    actorType: $actorIdentity['type'],
+                    actorId: $actorIdentity['id'],
+                    previousVersion: $previousVersion,
+                    version: $version,
+                ), $record->getConnection());
+
+                return $record;
+            }, $this->transactionAttempts());
+        } finally {
+            $owner->unsetRelation('translations');
+        }
     }
 
-    /**
-     * Delete one exact locale from a logical translatable resource.
-     */
-    public function delete(
+    /** Delete one locale after checking native admission and the caller's expected revision. */
+    public function deleteLocale(
         Model&TranslatableResourceModel $owner,
         string $locale,
+        Authenticatable|SystemActor $actor,
+        string $expectedVersion,
+        ?string $resourceKey = null,
     ): bool {
-        return $this->within($owner, function () use ($owner, $locale): bool {
-            $this->assertPersistedResource($owner);
-            $definition = $owner->translationDefinition();
-            $normalizedLocale = $definition->assertLocale(
-                $this->locales->assertSupported($locale),
-            );
-            $deleted = match (true) {
-                $owner instanceof TranslatableModel
-                    && $definition instanceof RelatedTranslationDefinition => $this->relatedStore->delete(
-                        $owner,
-                        $definition,
-                        $normalizedLocale,
-                    ),
-                $owner instanceof SelfTranslatableModel
-                    && $definition instanceof SelfTranslationDefinition => $this->selfStore->delete(
-                        $owner,
-                        $definition,
-                        $normalizedLocale,
-                    ),
-                default => throw new TranslatableException('The model and translation storage definition do not match.'),
-            };
+        $this->assertPersistedResource($owner);
+        $resource = $this->resolveResource($owner, $resourceKey);
+        $this->assertActor($actor);
 
-            $this->refreshLoadedTranslations($owner);
+        try {
+            return $owner->getConnection()->transaction(function () use ($owner, $locale, $actor, $expectedVersion, $resource): bool {
+                $this->ownership->lockOwner($owner, $owner->translationDefinition());
+                $record = $this->locator->lock($resource, $owner->translationResourceKey());
+                $this->authorization->authorize($actor, TranslationResourceAbility::Delete, $resource, $record);
+                $this->assertDirectMutation($record, $resource->key);
+                $previousVersion = $this->versioner->version($record);
+                $this->assertVersion($resource->key, $previousVersion, $expectedVersion);
+                $normalizedLocale = $record->translationDefinition()->assertLocale($this->locales->assertSupported($locale));
+                $deleted = $this->deleteStoredLocale($record, $normalizedLocale);
 
-            return $deleted;
-        });
+                if ($deleted) {
+                    $record = $this->locator->lock($resource, $owner->translationResourceKey());
+                    $this->locator->loadTranslations(new Collection([$record]));
+                    $actorIdentity = TranslationEventActor::identity($actor);
+                    $this->domainEvents->dispatch(new TranslationResourceLocaleDeleted(
+                        resource: $resource->key,
+                        ownerType: $record->getMorphClass(),
+                        ownerId: $record->translationResourceKey(),
+                        locale: $normalizedLocale,
+                        actorType: $actorIdentity['type'],
+                        actorId: $actorIdentity['id'],
+                        previousVersion: $previousVersion,
+                        version: $this->versioner->version($record),
+                    ), $record->getConnection());
+                }
+
+                return $deleted;
+            }, $this->transactionAttempts());
+        } finally {
+            $owner->unsetRelation('translations');
+        }
     }
 
-    /** Keep each mutation atomic on its native source and discard loaded rows on rollback.
-     * @template T
-     *
-     * @param  Closure(): T  $operation
-     * @return T
-     */
-    private function within(Model&TranslatableResourceModel $owner, Closure $operation): mixed
+    /** Resolve an exact catalog entry when one model has multiple visibility registrations. */
+    private function resolveResource(Model&TranslatableResourceModel $owner, ?string $resourceKey): TranslationResourceDefinition
     {
-        if ($this->ownership === null || $this->ownership->snapshot()->mode === OwnershipContextMode::Disabled) {
-            return $operation();
+        $resource = $resourceKey === null ? $this->resources->forModel($owner) : $this->resources->get($resourceKey);
+        if ($resource->modelClass !== $owner::class) {
+            throw TranslationResourceException::invalid('The translation resource key does not match the owner model.');
         }
-        try {
-            return $owner->getConnection()->transaction($operation);
-        } catch (Throwable $exception) {
-            $owner->unsetRelation('translations');
-            throw $exception;
+
+        return $resource;
+    }
+
+    /** Reject stale or missing revision preconditions. */
+    private function assertVersion(string $resource, string $actual, string $expected): void
+    {
+        if ($expected === '' || ! hash_equals($actual, $expected)) {
+            throw TranslationResourceException::stale($resource);
         }
+    }
+
+    /** Reject non-persisted ordinary actors without granting system authority. */
+    private function assertActor(Authenticatable|SystemActor $actor): void
+    {
+        if ($actor instanceof Authenticatable
+            && ($actor->getAuthIdentifier() === null || ($actor instanceof Model && ! $actor->exists))) {
+            throw TranslationResourceException::invalid('Translation mutations require a persisted actor.');
+        }
+    }
+
+    /** Keep package-specific mutations outside the generic resource writer. */
+    private function assertDirectMutation(Model&TranslatableResourceModel $record, string $resource): void
+    {
+        if ($record->translationDefinition()->mutationPolicy === TranslationMutationPolicy::OwningServiceOnly) {
+            throw TranslationResourceException::requiresOwningService($resource);
+        }
+    }
+
+    /** @return positive-int */
+    private function transactionAttempts(): int
+    {
+        $attempts = $this->config->get('nvl-translatable.transactions.attempts', 3);
+        if (! is_int($attempts) || $attempts < 1) {
+            throw TranslationResourceException::invalid('The translatable.transactions.attempts value must be a positive integer.');
+        }
+
+        return $attempts;
     }
 
     /**
@@ -258,6 +261,18 @@ final readonly class TranslationWriter
                     $locale,
                     $attributes,
                 ),
+            default => throw new TranslatableException('The model and translation storage definition do not match.'),
+        };
+    }
+
+    /** Delete one exact locale through its declared storage strategy. */
+    private function deleteStoredLocale(Model&TranslatableResourceModel $owner, string $locale): bool
+    {
+        $definition = $owner->translationDefinition();
+
+        return match (true) {
+            $owner instanceof TranslatableModel && $definition instanceof RelatedTranslationDefinition => $this->relatedStore->delete($owner, $definition, $locale),
+            $owner instanceof SelfTranslatableModel && $definition instanceof SelfTranslationDefinition => $this->selfStore->delete($owner, $definition, $locale),
             default => throw new TranslatableException('The model and translation storage definition do not match.'),
         };
     }
@@ -333,22 +348,6 @@ final readonly class TranslationWriter
                 $undeclared[0],
                 $definition->fields,
             );
-        }
-    }
-
-    /**
-     * Refresh already-loaded translation state after either strategy writes.
-     */
-    private function refreshLoadedTranslations(Model&TranslatableResourceModel $owner): void
-    {
-        if ($owner instanceof TranslatableModel && $owner->relationLoaded('translations')) {
-            $owner->load('translations');
-
-            return;
-        }
-
-        if ($owner instanceof SelfTranslatableModel && $owner->relationLoaded('translations')) {
-            $owner->setRelation('translations', $this->selfStore->rows($owner));
         }
     }
 }

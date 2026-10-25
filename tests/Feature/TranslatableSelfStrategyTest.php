@@ -2,16 +2,17 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
+
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
-use Nvl\Translatable\Actions\SyncTranslationResourceAction;
-use Nvl\Translatable\Data\DeleteTranslationLocaleData;
-use Nvl\Translatable\Data\TranslationActorData;
-use Nvl\Translatable\Data\TranslationMutationData;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Enums\TranslationStorageStrategy;
+use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\TranslationDoctor;
@@ -20,7 +21,6 @@ use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
-use Nvl\Translatable\TranslationResourceQuery;
 
 beforeEach(function (): void {
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
@@ -59,10 +59,10 @@ test('it declares and writes grouped translations without a canonical owner row'
     $versioner = app(TranslationResourceVersioner::class);
     $initialVersion = $versioner->version($model);
 
-    $bulgarian = $writer->upsert($model, 'bg', [
+    $bulgarian = $writer->sync($model, ['bg' => [
         'name' => 'Добре дошли',
         'description' => 'Българско описание',
-    ]);
+    ]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $translatedVersion = $versioner->version($model);
     $model->forceFill(['type' => 'custom'])->save();
 
@@ -124,13 +124,13 @@ test('it validates fields and preserves the final grouped locale row', function 
     ]);
     $writer = app(TranslationWriter::class);
 
-    expect(fn () => $writer->upsert($model, 'bg', ['entry_key' => 'changed']))
+    expect(fn () => $writer->sync($model, ['bg' => ['entry_key' => 'changed']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))
         ->toThrow(InvalidTranslatableFieldException::class)
-        ->and(fn () => $writer->delete($model, 'en'))
+        ->and(fn () => $writer->deleteLocale($model, 'en', SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))
         ->toThrow(TranslatableException::class, 'final locale row');
 
-    $writer->upsert($model, 'bg', ['name' => 'Защитен']);
-    $writer->replace($model, ['bg' => ['name' => 'Само български']]);
+    $writer->sync($model, ['bg' => ['name' => 'Защитен']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $writer->sync($model, ['bg' => ['name' => 'Само български']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model), TranslationSyncMode::Replace);
 
     expect(
         TestSelfTranslatableModel::query()
@@ -140,7 +140,7 @@ test('it validates fields and preserves the final grouped locale row', function 
     )->toBe(['bg']);
 });
 
-test('self-row convenience mutations preserve identity and loaded group state', function (): void {
+test('self-row service mutations preserve identity and loaded group state', function (): void {
     $model = TestSelfTranslatableModel::create([
         'entry_key' => 'catalog.convenience',
         'locale' => 'en',
@@ -149,22 +149,24 @@ test('self-row convenience mutations preserve identity and loaded group state', 
     ]);
     $model->setRelation('translations', $model->getAllTranslations());
 
-    $model->setTranslation(['name' => 'Български'], 'bg');
-    $model->cloneTranslation('en', 'en-GB');
+    $writer = app(TranslationWriter::class);
+    $versioner = app(TranslationResourceVersioner::class);
+    $writer->sync($model, ['bg' => ['name' => 'Български']], SystemActor::Background, $versioner->version($model));
+    $writer->sync($model, ['en-GB' => ['name' => $model->translated('name', 'en')]], SystemActor::Background, $versioner->version($model));
 
     expect($model->getAllTranslations())->toHaveCount(3)
         ->and($model->translated('name', 'bg'))->toBe('Български')
         ->and($model->translated('name', 'en-GB'))->toBe('English')
-        ->and($model->deleteTranslation('en-GB'))->toBeTrue()
-        ->and($model->deleteTranslation('en-GB'))->toBeFalse()
-        ->and($model->deleteTranslation('bg'))->toBeTrue()
-        ->and($model->deleteTranslation('bg'))->toBeFalse()
-        ->and(fn () => $model->deleteTranslation('en'))
+        ->and($writer->deleteLocale($model, 'en-GB', SystemActor::Background, $versioner->version($model)))->toBeTrue()
+        ->and($writer->deleteLocale($model, 'en-GB', SystemActor::Background, $versioner->version($model)))->toBeFalse()
+        ->and($writer->deleteLocale($model, 'bg', SystemActor::Background, $versioner->version($model)))->toBeTrue()
+        ->and($writer->deleteLocale($model, 'bg', SystemActor::Background, $versioner->version($model)))->toBeFalse()
+        ->and(fn () => $writer->deleteLocale($model, 'en', SystemActor::Background, $versioner->version($model)))
         ->toThrow(TranslatableException::class, 'final locale row')
-        ->and(fn () => (new TestSelfTranslatableModel([
+        ->and(fn () => $writer->sync(new TestSelfTranslatableModel([
             'entry_key' => 'catalog.unsaved',
-        ]))->setTranslation(['name' => 'Unsaved'], 'en'))
-        ->toThrow(TranslatableException::class, 'persisted representative');
+        ]), ['en' => ['name' => 'Unsaved']], SystemActor::Background, 'unread'))
+        ->toThrow(TranslatableException::class, 'persisted owner');
 
     $model->setAttribute('entry_key', 'catalog.changed');
 
@@ -246,7 +248,7 @@ test('it gathers searches and reports logical self-translated resources', functi
         'name' => 'First',
         'type' => 'system',
     ]);
-    app(TranslationWriter::class)->upsert($first, 'bg', ['name' => 'Първи']);
+    app(TranslationWriter::class)->sync($first, ['bg' => ['name' => 'Първи']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($first));
     TestSelfTranslatableModel::create([
         'entry_key' => 'catalog.second',
         'locale' => 'en',
@@ -254,33 +256,33 @@ test('it gathers searches and reports logical self-translated resources', functi
         'type' => 'system',
     ]);
     $gatherer = app(TranslationResourceGatherer::class);
-    $actor = TranslationActorData::system('test');
+    $actor = SystemActor::Background;
     $summary = collect($gatherer->summaries($actor))->first(
-        static fn ($summary): bool => $summary->key === 'tests.self-models',
+        static fn ($summary): bool => $summary['key'] === 'tests.self-models',
     );
     $missing = $gatherer->gather(
         'tests.self-models',
         $actor,
-        new TranslationResourceQuery(missingLocale: 'bg', perPage: 10),
+        ['missing_locale' => 'bg', 'per_page' => 10],
     );
     $searched = $gatherer->gather(
         'tests.self-models',
         $actor,
-        new TranslationResourceQuery(search: 'searchable', perPage: 10),
+        ['search' => 'searchable', 'per_page' => 10],
     );
 
     expect($summary)
         ->not->toBeNull()
-        ->and($summary->storage)->toBe('self')
-        ->and($summary->table)->toBe('test_self_translatable_models')
-        ->and($summary->translationTable)->toBe('test_self_translatable_models')
-        ->and($summary->total)->toBe(2)
-        ->and($summary->coverage['en']->translated)->toBe(2)
-        ->and($summary->coverage['bg']->translated)->toBe(1)
+        ->and($summary['storage'])->toBe('self')
+        ->and($summary['table'])->toBe('test_self_translatable_models')
+        ->and($summary['translationTable'])->toBe('test_self_translatable_models')
+        ->and($summary['total'])->toBe(2)
+        ->and($summary['coverage']['en']['translated'])->toBe(2)
+        ->and($summary['coverage']['bg']['translated'])->toBe(1)
         ->and($missing->total())->toBe(1)
-        ->and($missing->items()[0]->id)->toBe('catalog.second')
+        ->and($missing->items()[0]['id'])->toBe('catalog.second')
         ->and($searched->total())->toBe(1)
-        ->and($searched->items()[0]->translations['en']['name'])->toBe('Second searchable');
+        ->and($searched->items()[0]['translations']['en']['name'])->toBe('Second searchable');
 });
 
 test('it centrally synchronizes and deletes grouped resource locales by logical key', function (): void {
@@ -290,28 +292,19 @@ test('it centrally synchronizes and deletes grouped resource locales by logical 
         'name' => 'Managed',
         'type' => 'system',
     ]);
-    $actor = TranslationActorData::system('test');
+    $actor = SystemActor::Background;
     $versioner = app(TranslationResourceVersioner::class);
-    $updated = app(SyncTranslationResourceAction::class)->execute(
-        'tests.self-models',
-        'catalog.managed',
-        new TranslationMutationData(
-            translations: ['bg' => ['name' => 'Управляван']],
-            expectedVersion: $versioner->version($model),
-        ),
+    $updated = app(TranslationWriter::class)->sync(
+        $model,
+        ['bg' => ['name' => 'Управляван']],
         $actor,
+        $versioner->version($model),
     );
-    $deleted = app(DeleteTranslationResourceLocaleAction::class)->execute(
-        'tests.self-models',
-        'catalog.managed',
-        new DeleteTranslationLocaleData('en', $updated->version),
-        $actor,
-    );
+    $deleted = app(TranslationWriter::class)->deleteLocale($model, 'en', $actor, $versioner->version($updated));
 
-    expect($updated->id)->toBe('catalog.managed')
-        ->and($updated->locales)->toBe(['bg'])
-        ->and($deleted->deleted)->toBeTrue()
-        ->and($deleted->id)->toBe('catalog.managed')
+    expect($updated->translationResourceKey())->toBe('catalog.managed')
+        ->and($updated->getAvailableLocales())->toBe(['bg', 'en'])
+        ->and($deleted)->toBeTrue()
         ->and(
             TestSelfTranslatableModel::query()
                 ->where('entry_key', 'catalog.managed')
@@ -334,14 +327,12 @@ test('self-row resource scopes hide records consistently from locked writes', fu
         'type' => 'hidden',
     ]);
 
-    expect(fn () => app(SyncTranslationResourceAction::class)->execute(
-        'tests.self-scoped',
-        'catalog.hidden',
-        new TranslationMutationData(
-            translations: ['bg' => ['name' => 'Скрит']],
-            expectedVersion: app(TranslationResourceVersioner::class)->version($hidden),
-        ),
-        TranslationActorData::system('test'),
+    expect(fn () => app(TranslationWriter::class)->sync(
+        $hidden,
+        ['bg' => ['name' => 'Скрит']],
+        SystemActor::Background,
+        app(TranslationResourceVersioner::class)->version($hidden),
+        resourceKey: 'tests.self-scoped',
     ))->toThrow(ModelNotFoundException::class);
 });
 
@@ -354,14 +345,14 @@ test('it bounds mutation payloads before changing grouped resources', function (
         'type' => 'system',
     ]);
 
-    expect(fn () => app(TranslationWriter::class)->patch($model, [
+    expect(fn () => app(TranslationWriter::class)->sync($model, [
         'en' => ['name' => 'English'],
         'bg' => ['name' => 'Bulgarian'],
-    ]))->toThrow(TranslatableException::class, 'at most 1 locales')
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))->toThrow(TranslatableException::class, 'at most 1 locales')
         ->and($model->getAvailableLocales())->toBe(['en']);
 });
 
-test('self-row convenience mutations enforce object nesting limits before writing', function (): void {
+test('self-row service mutations enforce object nesting limits before writing', function (): void {
     config()->set('nvl-translatable.limits.mutation_depth', 3);
     $model = TestSelfTranslatableModel::create([
         'entry_key' => 'catalog.nested',
@@ -375,12 +366,13 @@ test('self-row convenience mutations enforce object nesting limits before writin
         ],
     ];
 
-    expect(fn () => $model->setTranslation(['description' => $nestedValue], 'en'))
+    expect(fn () => app(TranslationWriter::class)->sync($model, ['en' => ['description' => $nestedValue]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model)))
         ->toThrow(TranslatableException::class, 'nesting may not exceed 3 levels')
         ->and($model->fresh()?->description)->toBeNull();
 });
 
 test('the doctor validates global configuration and grouped schema invariants', function (): void {
+    expect(app(TranslationDoctor::class)->inspect()->errors)->toBe([]);
     $this->artisan('nvl:translatable:doctor', ['--format' => 'json'])
         ->expectsOutputToContain('"healthy": true')
         ->assertSuccessful();

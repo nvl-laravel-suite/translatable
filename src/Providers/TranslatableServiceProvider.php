@@ -5,23 +5,17 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Providers;
 
 use Illuminate\Support\ServiceProvider;
-use Nvl\Data\Services\TypeScriptSourceRegistry;
 use Nvl\Support\Doctor\DoctorCheck;
 use Nvl\Support\Doctor\PackageDoctorContributor;
 use Nvl\Support\Globals\GlobalNames;
 use Nvl\Support\Ownership\Contracts\OwnershipIntegratedProvider;
 use Nvl\Support\Ownership\Services\OwnershipContextParticipants;
 use Nvl\Support\Providers\SupportServiceProvider;
-use Nvl\Support\Providers\TenantServiceProvider;
 use Nvl\Support\Traits\MergesPackageConfiguration;
 use Nvl\Support\Traits\RegistersNamespacedResources;
-use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
-use Nvl\Translatable\Actions\SyncTranslationResourceAction;
 use Nvl\Translatable\Console\Commands\GatherTranslationResourcesCommand;
 use Nvl\Translatable\Console\Commands\TranslatableDoctorCommand;
 use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
-use Nvl\Translatable\Contracts\DeleteTranslationResourceLocaleContract;
-use Nvl\Translatable\Contracts\SyncTranslationResourceContract;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Ownership\TranslationContextParticipant;
@@ -54,9 +48,6 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
      */
     public function register(): void
     {
-        $this->app->bindIf(DeleteTranslationResourceLocaleContract::class, DeleteTranslationResourceLocaleAction::class);
-        $this->app->bindIf(SyncTranslationResourceContract::class, SyncTranslationResourceAction::class);
-
         $this->app->register(SupportServiceProvider::class);
         PackageDoctorContributor::register($this->app, 'nvl/translatable', function (): array {
             $report = $this->app->make(TranslationDoctor::class)->inspect();
@@ -70,7 +61,6 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
             return $checks;
         });
 
-        $this->app->register(TenantServiceProvider::class);
         $this->mergePackageConfiguration(
             __DIR__.'/../../config/nvl-translatable.php',
             'translatable',
@@ -90,8 +80,6 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
         $this->app->scoped(TranslationResourceLocator::class);
         $this->app->scoped(TranslationResourceVersioner::class);
         $this->app->scoped(TranslationResourceAuthorization::class);
-        $this->app->bindIf(SyncTranslationResourceAction::class);
-        $this->app->bindIf(DeleteTranslationResourceLocaleAction::class);
         $this->app->bindIf(
             ContentLocalePreferenceResolver::class,
             NullContentLocalePreferenceResolver::class,
@@ -105,16 +93,13 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
     /**
      * Publish translation configuration and agentic skills.
      */
-    public function boot(
-        TranslationResourceRegistry $resources,
-        TypeScriptSourceRegistry $typeScriptSources,
-    ): void {
+    public function boot(TranslationResourceRegistry $resources): void
+    {
         $this->app->make(OwnershipContextParticipants::class)->register(TranslationContextParticipant::class);
         $this->app->make(GlobalNames::class)->translations('translatable', __DIR__.'/../../lang', $this->app->make('translation.loader'));
         $this->publishes([
             __DIR__.'/../../lang' => lang_path('vendor/nvl-translatable'),
         ], 'nvl-translatable-translations');
-        $typeScriptSources->register(__DIR__.'/..', 'nvl/translatable');
 
         $this->publishes([
             __DIR__.'/../../config/nvl-translatable.php' => config_path('nvl-translatable.php'),

@@ -2,185 +2,202 @@
 
 declare(strict_types=1);
 
+if (! in_array(dirname(__DIR__, 2).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TenancyTestCase');
+}
+
 use Illuminate\Contracts\Foundation\MaintenanceMode;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Nvl\Support\Tenancy\Contracts\TenantParentResolver;
-use Nvl\Support\Tenancy\Enums\TenantResourceKind;
-use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
-use Nvl\Support\Tenancy\Exceptions\TenantConfigurationInvalid;
-use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
-use Nvl\Support\Tenancy\ValueObjects\PlatformOperation;
-use Nvl\Support\Tenancy\ValueObjects\TenantResourceDefinition;
-use Nvl\Tenancy\Contracts\TenantAdoptionAdapter;
-use Nvl\Tenancy\Services\TenantAdoptionCoordinator;
-use Nvl\Tenancy\Services\TenantAdoptionRegistry;
-use Nvl\Tenancy\Services\TenantBoundary;
-use Nvl\Tenancy\Services\TenantRunner;
-use Nvl\Tenancy\ValueObjects\TenantAdoptionPlan;
-use Nvl\Tenancy\ValueObjects\TenantBackfillResult;
-use Nvl\Tenancy\ValueObjects\TenantVerification;
+use Nvl\Ownership\Contracts\OwnershipAdoptionAdapter;
+use Nvl\Ownership\Services\OwnershipAdoptionRegistry;
+use Nvl\Ownership\Services\OwnershipRunner;
+use Nvl\Ownership\Services\OwnershipSchema;
+use Nvl\Ownership\Services\OwnershipWriter;
+use Nvl\Ownership\ValueObjects\OwnershipAdoptionPlan;
+use Nvl\Ownership\ValueObjects\OwnershipAssignment;
+use Nvl\Ownership\ValueObjects\OwnershipBackfillResult;
+use Nvl\Ownership\ValueObjects\OwnershipVerification;
+use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
+use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
+use Nvl\Support\Ownership\ValueObjects\OwnershipResourceDefinition;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\Services\TranslationOwnership;
+use Nvl\Translatable\Tests\Support\OwnershipActor;
 use Nvl\Translatable\Tests\Support\TenantArticle;
 use Nvl\Translatable\Tests\Support\TenantArticleTranslation;
 use Nvl\Translatable\Tests\Support\TenantMixedTranslationOwner;
 use Nvl\Translatable\Tests\Support\TenantPolymorphicTranslationChild;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 
-/** Adopt only these two supplemental service fixtures with a real allowlisted graph. */
-function adoptTranslationPartitionFixtures(bool $heterogeneous): void
+/** Register supplemental native roots before the immutable graph is adopted. */
+function registerTranslationPartitionFixtures(bool $multipleParents): void
 {
-    $registry = app(TenantResourceRegistry::class);
-    $registry->register(new TenantResourceDefinition('mixed.owners', 'mixed-test', TenantMixedTranslationOwner::class, allowsPlatformRows: true));
-    $registry->register(new TenantResourceDefinition('mixed.children', 'mixed-test', TenantPolymorphicTranslationChild::class, TenantResourceKind::Inherited, parentRelation: 'owner'));
-    $resolver = new class($heterogeneous) implements TenantParentResolver
+    $resources = app(OwnershipResourceRegistry::class);
+    $resources->register(new OwnershipResourceDefinition(
+        'mixed.owners', 'mixed-test', TenantMixedTranslationOwner::class,
+        TenantMixedTranslationOwner::ownershipDefinition(), allowsCentral: true,
+    ));
+    $resources->register(new OwnershipResourceDefinition(
+        'mixed.children', 'mixed-test', TenantPolymorphicTranslationChild::class,
+        TenantPolymorphicTranslationChild::ownershipDefinition(),
+        allowsCentral: true,
+        parentResources: $multipleParents ? ['mixed.owners', 'test.articles'] : ['mixed.owners'],
+    ));
+    $adapter = new class(app(OwnershipSchema::class)) implements OwnershipAdoptionAdapter
     {
-        /** Select the declared test graph without consulting caller model attributes. */
-        public function __construct(private readonly bool $heterogeneous) {}
+        public function __construct(private readonly OwnershipSchema $ownershipSchema) {}
 
-        /** @return array<string, class-string<Model>> */
-        public function types(): array
-        {
-            return [TenantMixedTranslationOwner::class => TenantMixedTranslationOwner::class,
-                ...($this->heterogeneous ? [TenantArticle::class => TenantArticle::class] : [])];
-        }
-    };
-    app()->instance($resolver::class, $resolver);
-    $registry->registerParentResolver('mixed.children', $resolver::class);
-    $adapter = new class implements TenantAdoptionAdapter
-    {
-        /** @return list<string> */
         public function resources(): array
         {
             return ['mixed.owners', 'mixed.children'];
         }
 
-        /** Prepare this test owner's explicit mixed and inherited schemas. */
-        public function prepare(TenantAdoptionPlan $plan): void
+        public function prepare(OwnershipAdoptionPlan $plan): void
         {
             if (! Schema::hasTable('tenant_test_mixed_owners')) {
                 Schema::create('tenant_test_mixed_owners', static function (Blueprint $table): void {
                     $table->uuid('id')->primary();
-                    $table->uuid('tenant_id')->nullable();
-                    $table->string('ownership_key');
-                    $table->index(['ownership_key', 'id']);
+                    $table->foreignUuid('tenant_id')->nullable()->constrained('tenant_test_owners');
                 });
             }
             if (! Schema::hasTable('tenant_test_polymorphic_children')) {
                 Schema::create('tenant_test_polymorphic_children', static function (Blueprint $table): void {
                     $table->uuid('id')->primary();
-                    $table->uuid('tenant_id')->nullable();
                     $table->string('owner_type');
                     $table->uuid('owner_id');
                     $table->index(['owner_type', 'owner_id']);
                 });
             }
+            foreach ($this->resources() as $resource) {
+                $this->ownershipSchema->prepare($resource);
+            }
         }
 
-        /** The supplemental test resources have no historical rows. */
-        public function backfill(TenantAdoptionPlan $plan, ?string $cursor, int $limit): TenantBackfillResult
+        public function backfill(OwnershipAdoptionPlan $plan, ?string $cursor, int $limit): OwnershipBackfillResult
         {
             expect(DB::table('tenant_test_mixed_owners')->exists())->toBeFalse();
             expect(DB::table('tenant_test_polymorphic_children')->exists())->toBeFalse();
 
-            return new TenantBackfillResult(null, 0);
+            return new OwnershipBackfillResult(null, 0);
         }
 
-        /** Inspect actual fixture schema rather than installing synthetic markers. */
-        public function verify(TenantAdoptionPlan $plan): TenantVerification
+        public function verify(OwnershipAdoptionPlan $plan): OwnershipVerification
         {
-            return new TenantVerification(
-                Schema::hasColumns('tenant_test_mixed_owners', ['id', 'tenant_id', 'ownership_key'])
-                && Schema::hasIndex('tenant_test_mixed_owners', ['ownership_key', 'id'])
-                && Schema::hasColumns('tenant_test_polymorphic_children', ['id', 'tenant_id', 'owner_type', 'owner_id'])
-                    ? [] : ['mixed_fixture_schema'],
-            );
+            foreach ($this->resources() as $resource) {
+                $this->ownershipSchema->verify($resource);
+            }
+
+            return new OwnershipVerification([]);
         }
 
-        /** The prepared fixture already has its final constraints. */
-        public function activate(TenantAdoptionPlan $plan): void {}
+        public function activate(OwnershipAdoptionPlan $plan): void
+        {
+            foreach ($this->resources() as $resource) {
+                $this->ownershipSchema->constrain($resource);
+            }
+        }
     };
     app()->instance($adapter::class, $adapter);
-    app(TenantAdoptionRegistry::class)->register('mixed-fixtures', $adapter::class);
+    app(OwnershipAdoptionRegistry::class)->register('mixed-fixtures', $adapter::class);
     app(MaintenanceMode::class)->activate([]);
-    $coordinator = app(TenantAdoptionCoordinator::class);
-    $operation = new PlatformOperation('fixture.adoption', 'test', 'fixture');
-    $plan = $coordinator->prepare(['mixed-fixtures'], [], $operation);
-    $done = false;
-    for ($batch = 0; $batch < 20 && ! $done; $batch++) {
-        $done = $coordinator->backfill($plan, 100, $operation);
-    }
-    expect($done)->toBeTrue();
-    expect($coordinator->verify($plan)->passed())->toBeTrue();
-    $coordinator->activate($plan, $operation);
-    app(MaintenanceMode::class)->deactivate();
 }
 
-it('selects the declared mixed partition and resolves persisted polymorphic parents', function (bool $platform): void {
-    $scenario = TenantTranslationScenario::install();
-    adoptTranslationPartitionFixtures(false);
-    $callback = function () use ($platform): void {
-        $owner = new TenantMixedTranslationOwner;
-        $owner->forceFill(app(TenantBoundary::class)->attributes('mixed.owners'))->save();
-        $child = new TenantPolymorphicTranslationChild;
-        $child->forceFill(['tenant_id' => $owner->tenant_id, 'owner_type' => $owner::class, 'owner_id' => $owner->id])->save();
+/** Create one root using only the current native writer assignment. */
+function createMixedTranslationRoot(): TenantMixedTranslationOwner
+{
+    return app(OwnershipWriter::class)->create(
+        TenantMixedTranslationOwner::class,
+        static function (OwnershipAssignment $assignment): TenantMixedTranslationOwner {
+            $owner = new TenantMixedTranslationOwner;
+            $owner->forceFill($assignment->attributes());
+            $owner->save();
+
+            return $owner;
+        },
+    );
+}
+
+/** Create a polymorphic child with its persisted parent as the sole authority. */
+function createMixedTranslationChild(TenantMixedTranslationOwner|TenantArticle $parent): TenantPolymorphicTranslationChild
+{
+    return app(OwnershipWriter::class)->create(
+        TenantPolymorphicTranslationChild::class,
+        static function (OwnershipAssignment $assignment) use ($parent): TenantPolymorphicTranslationChild {
+            $child = new TenantPolymorphicTranslationChild;
+            $child->forceFill([
+                ...$assignment->attributes(),
+                'owner_type' => $parent::class,
+                'owner_id' => $parent->getKey(),
+            ]);
+            $child->save();
+
+            return $child;
+        },
+    );
+}
+
+it('selects the declared native partition and rejects forged polymorphic parent facts', function (bool $central): void {
+    registerTranslationPartitionFixtures(false);
+    $scenario = TenantTranslationScenario::install(adoptionPackages: ['mixed-fixtures']);
+    $callback = static function (): void {
+        $owner = createMixedTranslationRoot();
+        $child = createMixedTranslationChild($owner);
         $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name'], ownershipResource: 'mixed.children');
         $ownership = app(TranslationOwnership::class);
         $key = $ownership->partitionKey($child, $definition);
+        expect($ownership->partitionColumns($definition))->toBe(['owner_scope_key']);
+        expect($ownership->childAttributes($child, $definition))->toHaveKey('owner_scope_key');
         $child->owner_type = 'unregistered';
         $child->owner_id = TenantTranslationScenario::B;
-        $child->tenant_id = TenantTranslationScenario::B;
-        expect($ownership->partitionColumns($definition))->toBe(['ownership_key']);
-        expect($ownership->childAttributes($child, $definition))->toBe([
-            'tenant_id' => $platform ? null : TenantTranslationScenario::A,
-            'ownership_key' => $platform ? 'platform' : 'tenant:'.TenantTranslationScenario::A,
-        ]);
-        expect($ownership->partitionKey($child, $definition))->toBe($key);
-        DB::table($child->getTable())->where('id', $child->id)->update(['owner_type' => 'unregistered']);
-        expect(fn () => $ownership->childAttributes($child, $definition))->toThrow(TenantBoundaryViolation::class);
+        expect(fn () => $ownership->partitionKey($child, $definition))->toThrow(OwnershipViolation::class);
+        expect($key)->toHaveLength(64);
     };
-    if ($platform) {
-        app(TenantRunner::class)->platform(new PlatformOperation('fixture.adoption', 'test', 'fixture'), $callback);
+    if ($central) {
+        app(OwnershipRunner::class)->central('translation-maintain', OwnershipActor::query()->firstOrFail(), $callback);
     } else {
         $scenario->run($scenario::A, $callback);
     }
 })->with([false, true]);
 
-it('rejects heterogeneous polymorphic root partition schemas', function (): void {
-    $scenario = TenantTranslationScenario::install();
-    adoptTranslationPartitionFixtures(true);
-    $scenario->run($scenario::A, function (): void {
+it('accepts only finite registered native polymorphic parent resources', function (): void {
+    registerTranslationPartitionFixtures(true);
+    $scenario = TenantTranslationScenario::install(adoptionPackages: ['mixed-fixtures']);
+    $article = $scenario->article($scenario::A, 'registered-parent', []);
+    $scenario->run($scenario::A, static function () use ($article): void {
+        $child = createMixedTranslationChild($article);
         $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name'], ownershipResource: 'mixed.children');
-        expect(fn () => app(TranslationOwnership::class)->partitionColumns($definition))
-            ->toThrow(TenantConfigurationInvalid::class, 'consistent partition schema');
+        expect(app(TranslationOwnership::class)->partitionColumns($definition))->toBe(['owner_scope_key']);
+        expect(app(TranslationOwnership::class)->partitionKey($child, $definition))->toHaveLength(64);
+        $child->owner_type = 'unregistered';
+        expect(fn () => app(TranslationOwnership::class)->childAttributes($child, $definition))->toThrow(OwnershipViolation::class);
     });
 });
 
 it('rejects changed canonical polymorphic parent identity when locking', function (string $change): void {
-    $scenario = TenantTranslationScenario::install();
-    adoptTranslationPartitionFixtures(false);
-    $scenario->run($scenario::A, function () use ($change): void {
-        $owner = new TenantMixedTranslationOwner;
-        $owner->forceFill(app(TenantBoundary::class)->attributes('mixed.owners'))->save();
-        $other = new TenantMixedTranslationOwner;
-        $other->forceFill(app(TenantBoundary::class)->attributes('mixed.owners'))->save();
-        $child = new TenantPolymorphicTranslationChild;
-        $child->forceFill(['tenant_id' => $owner->tenant_id, 'owner_type' => $owner::class, 'owner_id' => $owner->id])->save();
+    registerTranslationPartitionFixtures(false);
+    $scenario = TenantTranslationScenario::install(adoptionPackages: ['mixed-fixtures']);
+    $scenario->run($scenario::A, static function () use ($change): void {
+        $owner = createMixedTranslationRoot();
+        $other = createMixedTranslationRoot();
+        $child = createMixedTranslationChild($owner);
         $definition = new RelatedTranslationDefinition(TenantArticleTranslation::class, ['name'], ownershipResource: 'mixed.children');
         $ownership = app(TranslationOwnership::class);
-        $child->getConnection()->transaction(function () use ($child, $other, $change, $definition, $ownership): void {
+        $child->getConnection()->transaction(static function () use ($child, $other, $change, $definition, $ownership): void {
             expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
             if ($change === 'persisted parent') {
-                DB::table($child->getTable())->where('id', $child->id)->update(['owner_id' => $other->id]);
+                expect(fn () => DB::table($child->getTable())->where('id', $child->id)->update(['owner_id' => $other->id]))
+                    ->toThrow(QueryException::class);
+                expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
             } elseif ($change === 'dirty type') {
                 $child->owner_type = 'unregistered';
+                expect(fn () => $ownership->lockOwner($child, $definition))->toThrow(OwnershipViolation::class);
             } else {
                 $child->owner_id = $other->id;
+                expect(fn () => $ownership->lockOwner($child, $definition))->toThrow(OwnershipViolation::class);
             }
-            expect(fn () => $ownership->lockOwner($child, $definition))->toThrow(TenantBoundaryViolation::class);
         });
     });
 })->with(['dirty parent', 'dirty type', 'persisted parent']);

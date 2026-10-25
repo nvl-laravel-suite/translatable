@@ -7,6 +7,9 @@ namespace Nvl\Translatable\Tests\Support;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Nvl\Support\Ownership\Contracts\Ownable;
+use Nvl\Support\Ownership\Traits\HasOwnership;
+use Nvl\Support\Ownership\ValueObjects\OwnershipDefinition;
 
 /**
  * Represents persisted allowlisted polymorphic ownership for service tests.
@@ -16,9 +19,15 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property string $owner_type Allowlisted persisted parent type.
  * @property string $owner_id Persisted parent UUID.
  */
-final class TenantPolymorphicTranslationChild extends Model
+final class TenantPolymorphicTranslationChild extends Model implements Ownable
 {
+    use HasOwnership;
     use HasUuids;
+
+    public static function ownershipDefinition(): OwnershipDefinition
+    {
+        return OwnershipDefinition::inherited('owner');
+    }
 
     public $timestamps = false;
 

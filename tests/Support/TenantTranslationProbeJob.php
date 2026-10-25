@@ -9,14 +9,14 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Support\Facades\DB;
-use Nvl\Support\Tenancy\Contracts\TenantContext;
-use Nvl\Support\Tenancy\Contracts\TenantQueuedJob;
-use Nvl\Support\Tenancy\ValueObjects\TenantJobEnvelope;
+use Nvl\Support\Ownership\Contracts\OwnershipContext;
+use Nvl\Support\Ownership\Contracts\OwnershipQueuedJob;
+use Nvl\Support\Ownership\ValueObjects\OwnershipJobEnvelope;
 use Nvl\Translatable\Services\ContentLocale;
 use RuntimeException;
 
 /** Reads one canonical translation after the worker restores its captured tenant. */
-final class TenantTranslationProbeJob implements ShouldQueue, TenantQueuedJob
+final class TenantTranslationProbeJob implements OwnershipQueuedJob, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -27,18 +27,18 @@ final class TenantTranslationProbeJob implements ShouldQueue, TenantQueuedJob
         public readonly string $recordId,
         public readonly string $locale,
         public readonly string $resultKey,
-        public readonly TenantJobEnvelope $envelope,
+        public readonly OwnershipJobEnvelope $envelope,
         public readonly bool $throwAfterRead = false,
     ) {}
 
     /** Return the immutable producer tenant envelope. */
-    public function tenantJobEnvelope(): TenantJobEnvelope
+    public function ownershipJobEnvelope(): OwnershipJobEnvelope
     {
         return $this->envelope;
     }
 
     /** Resolve the row canonically, persist the observed value, and optionally fail. */
-    public function handle(TenantContext $context, ContentLocale $contentLocale): void
+    public function handle(OwnershipContext $context, ContentLocale $contentLocale): void
     {
         $contentLocale->set($this->locale);
         $entry = TenantSelfEntry::query()->whereKey($this->recordId)->firstOrFail();
@@ -46,7 +46,7 @@ final class TenantTranslationProbeJob implements ShouldQueue, TenantQueuedJob
 
         DB::table('tenant_probe_results')->insert([
             'result_key' => $this->resultKey,
-            'tenant_id' => $context->requireTenant()->value,
+            'tenant_id' => $context->requireOwner()->key,
             'value' => is_scalar($value) ? (string) $value : null,
         ]);
 

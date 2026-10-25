@@ -9,7 +9,6 @@ use Nvl\Support\Contracts\DomainEvent;
 use Nvl\Support\Ownership\Contracts\OwnershipContext;
 use Nvl\Support\Ownership\Contracts\OwnershipQueuedJob;
 use Nvl\Support\Ownership\ValueObjects\OwnershipJobEnvelope;
-use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\TranslationSyncMode;
 
 /**
@@ -32,7 +31,8 @@ final readonly class TranslationResourceSynced implements DomainEvent, Ownership
         public int|string $ownerId,
         public array $locales,
         public TranslationSyncMode $mode,
-        public TranslationActorData $actor,
+        public string $actorType,
+        public int|string $actorId,
         public string $previousVersion,
         public string $version,
         public int $schemaVersion = 1,

@@ -2,25 +2,30 @@
 
 declare(strict_types=1);
 
+use Illuminate\Auth\GenericUser;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\OwnerRegistry;
-use Nvl\Translatable\Actions\DeleteTranslationResourceLocaleAction;
-use Nvl\Translatable\Actions\SyncTranslationResourceAction;
-use Nvl\Translatable\Data\DeleteTranslationLocaleData;
-use Nvl\Translatable\Data\TranslationActorData;
-use Nvl\Translatable\Data\TranslationMutationData;
+use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
+use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
+use Nvl\Translatable\Events\TranslationResourcesGathered;
 use Nvl\Translatable\Events\TranslationResourceSynced;
+use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
+use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
@@ -30,7 +35,11 @@ use Nvl\Translatable\Tests\Support\TestConnectedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestDomainManagedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestMismatchedConnectionModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
-use Nvl\Translatable\TranslationResourceQuery;
+use Nvl\Translatable\TranslationResourceDefinition;
+
+if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
+    uses('Nvl\\Translatable\\Tests\\TestCase');
+}
 
 beforeEach(function (): void {
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
@@ -72,6 +81,55 @@ test('it exposes one registry for every resource registered in the isolated appl
     expect($keys)->toContain('tests.models');
 });
 
+test('native writer patches a registered owner and enforces expected revisions', function (): void {
+    $owner = TestTranslatableModel::create(['slug' => 'native-writer']);
+    $writer = app(TranslationWriter::class);
+    $version = app(TranslationResourceVersioner::class)->version($owner);
+
+    $updated = $writer->sync($owner, ['en' => ['name' => 'English']], SystemActor::Background, $version);
+
+    expect($updated->translated('name', 'en'))->toBe('English')
+        ->and(fn () => $writer->sync($owner, ['bg' => ['name' => 'Bulgarian']], SystemActor::Background, $version))
+        ->toThrow(TranslationResourceException::class, 'changed after it was read')
+        ->and($updated->getAvailableLocales())->toBe(['en']);
+});
+
+test('native writer rejects ambiguous and mismatched resource selection before persistence', function (): void {
+    $owner = TestTranslatableModel::create(['slug' => 'ambiguous']);
+    $version = app(TranslationResourceVersioner::class)->version($owner);
+    app(TranslationResourceRegistry::class)->register('tests.second', TestTranslatableModel::class, 'Second view');
+    app(TranslationResourceRegistry::class)->register('tests.other-model', TestDomainManagedTranslatableModel::class, 'Other model');
+    $writer = app(TranslationWriter::class);
+
+    expect(fn () => $writer->sync($owner, ['en' => ['name' => 'Unsafe']], SystemActor::Background, $version))
+        ->toThrow(TranslationResourceException::class, 'multiple resource registrations')
+        ->and(fn () => $writer->sync($owner, ['en' => ['name' => 'Unsafe']], SystemActor::Background, $version, resourceKey: 'tests.other-model'))
+        ->toThrow(TranslationResourceException::class, 'does not match')
+        ->and(fn () => $writer->sync($owner, ['en' => ['name' => 'Unsafe']], SystemActor::Background, $version, resourceKey: 'tests.unknown'))
+        ->toThrow(TranslationResourceException::class, 'not registered')
+        ->and($owner->translations()->count())->toBe(0);
+});
+
+test('native writer enforces the selected resource visibility scope', function (): void {
+    $owner = TestTranslatableModel::create(['slug' => 'hidden']);
+    $version = app(TranslationResourceVersioner::class)->version($owner);
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.visible',
+        modelClass: TestTranslatableModel::class,
+        label: 'Visible only',
+        queryScope: static fn (Builder $query): Builder => $query->where('slug', 'visible'),
+    );
+
+    expect(fn () => app(TranslationWriter::class)->sync(
+        $owner,
+        ['en' => ['name' => 'Unsafe']],
+        SystemActor::Background,
+        $version,
+        resourceKey: 'tests.visible',
+    ))->toThrow(ModelNotFoundException::class)
+        ->and($owner->translations()->count())->toBe(0);
+});
+
 test('it compiles configured subclasses before building their translation resource definitions', function (): void {
     app(OwnerRegistry::class)->registerReplacement('fixture.configured-record', TestTranslatableModel::class, ConfiguredTranslatableModel::class);
     $resource = app(TranslationResourceRegistry::class)->register('tests.configured', TestTranslatableModel::class, 'Configured records');
@@ -79,7 +137,7 @@ test('it compiles configured subclasses before building their translation resour
     expect($prototype)->toBeInstanceOf(ConfiguredTranslatableModel::class)
         ->and(Relation::getMorphedModel(TestTranslatableModel::class))->toBe(ConfiguredTranslatableModel::class);
     $record = $prototype->newQuery()->create(['slug' => 'configured']);
-    app(TranslationWriter::class)->upsert($record, 'en', ['name' => 'Configured value']);
+    app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Configured value']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
     expect($record->translated('name', 'en'))->toBe('Configured value');
 });
 
@@ -88,57 +146,57 @@ test('it gathers normalized translations and locale coverage without n plus one 
     $second = TestTranslatableModel::create(['slug' => 'second-model']);
     $writer = app(TranslationWriter::class);
 
-    $writer->patch($first, [
+    $writer->sync($first, [
         'en' => ['name' => 'First'],
         'bg' => ['name' => 'Първи'],
-    ]);
-    $writer->upsert($second, 'en', ['name' => 'Second']);
+    ], SystemActor::Background, app(TranslationResourceVersioner::class)->version($first));
+    $writer->sync($second, ['en' => ['name' => 'Second']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($second));
     $second->translations()->create([
         'locale' => 'fr',
         'name' => 'Unsupported legacy row',
     ]);
 
     $gatherer = app(TranslationResourceGatherer::class);
-    $actor = TranslationActorData::system('test');
+    $actor = SystemActor::Background;
     $summary = collect($gatherer->summaries($actor))->first(
-        static fn ($summary): bool => $summary->key === 'tests.models',
+        static fn ($summary): bool => $summary['key'] === 'tests.models',
     );
     $page = $gatherer->gather(
         'tests.models',
         $actor,
-        new TranslationResourceQuery(missingLocale: 'bg', perPage: 10),
+        ['missing_locale' => 'bg', 'per_page' => 10],
     );
 
     expect($summary)
         ->not->toBeNull()
-        ->and($summary->translationTable)->toBe('test_translatable_models_i18n')
-        ->and($summary->total)->toBe(2)
-        ->and($summary->coverage['en']->toArray())->toBe(['translated' => 2, 'missing' => 0])
-        ->and($summary->coverage['bg']->toArray())->toBe(['translated' => 1, 'missing' => 1])
-        ->and($summary->coverage['en-GB']->toArray())->toBe(['translated' => 0, 'missing' => 2])
+        ->and($summary['translationTable'])->toBe('test_translatable_models_i18n')
+        ->and($summary['total'])->toBe(2)
+        ->and($summary['coverage']['en'])->toBe(['translated' => 2, 'missing' => 0])
+        ->and($summary['coverage']['bg'])->toBe(['translated' => 1, 'missing' => 1])
+        ->and($summary['coverage']['en-GB'])->toBe(['translated' => 0, 'missing' => 2])
         ->and($page->total())->toBe(1)
-        ->and($page->items()[0]->id)->toBe($second->id)
-        ->and($page->items()[0]->label)->toBe('second-model')
-        ->and($page->items()[0]->translations['en']['name'])->toBe('Second')
-        ->and(array_keys($page->items()[0]->translations))->toBe(['en'])
-        ->and($page->items()[0]->missingLocales)->toBe(['bg', 'en-GB'])
-        ->and($page->items()[0]->version)->toHaveLength(64);
+        ->and($page->items()[0]['id'])->toBe($second->id)
+        ->and($page->items()[0]['label'])->toBe('second-model')
+        ->and($page->items()[0]['translations']['en']['name'])->toBe('Second')
+        ->and(array_keys($page->items()[0]['translations']))->toBe(['en'])
+        ->and($page->items()[0]['missingLocales'])->toBe(['bg', 'en-GB'])
+        ->and($page->items()[0]['version'])->toHaveLength(64);
 });
 
 test('it reports resources as unavailable until both persistence tables exist', function (): void {
     Schema::drop('test_translatable_models_i18n');
 
     $gatherer = app(TranslationResourceGatherer::class);
-    $actor = TranslationActorData::system('test');
+    $actor = SystemActor::Background;
     $summary = collect($gatherer->summaries($actor))->first(
-        static fn ($summary): bool => $summary->key === 'tests.models',
+        static fn ($summary): bool => $summary['key'] === 'tests.models',
     );
 
     expect($summary)
         ->not->toBeNull()
-        ->and($summary->available)->toBeFalse()
-        ->and($summary->total)->toBe(0)
-        ->and($summary->coverage)->toBe([])
+        ->and($summary['available'])->toBeFalse()
+        ->and($summary['total'])->toBe(0)
+        ->and($summary['coverage'])->toBe([])
         ->and(fn () => $gatherer->gather('tests.models', $actor))
         ->toThrow(TranslationResourceException::class, 'until tables');
 });
@@ -149,12 +207,12 @@ test('it searches only registered owner columns', function (): void {
 
     $page = app(TranslationResourceGatherer::class)->gather(
         'tests.models',
-        TranslationActorData::system('test'),
-        new TranslationResourceQuery(search: 'catalog', perPage: 10),
+        SystemActor::Background,
+        ['search' => 'catalog', 'per_page' => 10],
     );
 
     expect($page->total())->toBe(1)
-        ->and($page->items()[0]->attributes['slug'])->toBe('catalog-one');
+        ->and($page->items()[0]['attributes']['slug'])->toBe('catalog-one');
 });
 
 test('it applies resource query scopes to coverage reads and locked writes', function (): void {
@@ -168,29 +226,27 @@ test('it applies resource query scopes to coverage reads and locked writes', fun
     $visible = TestTranslatableModel::create(['slug' => 'visible']);
     $hidden = TestTranslatableModel::create(['slug' => 'hidden']);
     $writer = app(TranslationWriter::class);
-    $writer->upsert($visible, 'en', ['name' => 'Visible']);
-    $writer->upsert($hidden, 'en', ['name' => 'Hidden']);
-    $actor = TranslationActorData::system('test');
+    $writer->sync($visible, ['en' => ['name' => 'Visible']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($visible), resourceKey: 'tests.models');
+    $writer->sync($hidden, ['en' => ['name' => 'Hidden']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($hidden), resourceKey: 'tests.models');
+    $actor = SystemActor::Background;
     $gatherer = app(TranslationResourceGatherer::class);
     $summary = collect($gatherer->summaries($actor))->first(
-        static fn ($summary): bool => $summary->key === 'tests.scoped',
+        static fn ($summary): bool => $summary['key'] === 'tests.scoped',
     );
 
     expect($summary)
         ->not->toBeNull()
-        ->and($summary->total)->toBe(1)
-        ->and($summary->coverage['en']->translated)->toBe(1)
+        ->and($summary['total'])->toBe(1)
+        ->and($summary['coverage']['en']['translated'])->toBe(1)
         ->and($gatherer->gather('tests.scoped', $actor)->total())->toBe(1)
         ->and(fn () => $gatherer->find('tests.scoped', $hidden->id, $actor))
         ->toThrow(ModelNotFoundException::class)
-        ->and(fn () => app(SyncTranslationResourceAction::class)->execute(
-            'tests.scoped',
-            $hidden->id,
-            new TranslationMutationData(
-                ['en' => ['name' => 'Still hidden']],
-                app(TranslationResourceVersioner::class)->version($hidden),
-            ),
+        ->and(fn () => app(TranslationWriter::class)->sync(
+            $hidden,
+            ['en' => ['name' => 'Still hidden']],
             $actor,
+            app(TranslationResourceVersioner::class)->version($hidden),
+            resourceKey: 'tests.scoped',
         ))
         ->toThrow(ModelNotFoundException::class);
 });
@@ -205,7 +261,7 @@ test('resource query scopes cannot switch the registered model boundary', functi
 
     expect(fn () => app(TranslationResourceGatherer::class)->gather(
         'tests.invalid-scope',
-        TranslationActorData::system('test'),
+        SystemActor::Background,
     ))->toThrow(TranslationResourceException::class, 'preserve its registered model');
 });
 
@@ -215,12 +271,12 @@ test('it treats search wildcard characters as literal input', function (): void 
 
     $page = app(TranslationResourceGatherer::class)->gather(
         'tests.models',
-        TranslationActorData::system('test'),
-        new TranslationResourceQuery(search: '100%', perPage: 10),
+        SystemActor::Background,
+        ['search' => '100%', 'per_page' => 10],
     );
 
     expect($page->total())->toBe(1)
-        ->and($page->items()[0]->attributes['slug'])->toBe('discount-100%-off');
+        ->and($page->items()[0]['attributes']['slug'])->toBe('discount-100%-off');
 });
 
 test('it centrally patches replaces and deletes registered resource translations', function (): void {
@@ -229,52 +285,30 @@ test('it centrally patches replaces and deletes registered resource translations
         TranslationResourceLocaleDeleted::class,
     ]);
     $model = TestTranslatableModel::create(['slug' => 'managed']);
-    $sync = app(SyncTranslationResourceAction::class);
-    $actor = TranslationActorData::system('test');
+    $writer = app(TranslationWriter::class);
+    $actor = SystemActor::Background;
     $versioner = app(TranslationResourceVersioner::class);
 
-    $updated = $sync->execute(
-        'tests.models',
-        $model->id,
-        new TranslationMutationData(
-            translations: [
-                'en' => ['name' => 'Managed'],
-                'bg' => ['name' => 'Управляван'],
-            ],
-            expectedVersion: $versioner->version($model),
-        ),
-        $actor,
-    );
+    $updated = $writer->sync($model, [
+        'en' => ['name' => 'Managed'],
+        'bg' => ['name' => 'Управляван'],
+    ], $actor, $versioner->version($model));
+    $updatedVersion = $versioner->version($updated);
 
     expect($model->translations()->count())->toBe(2)
-        ->and($updated->version)->toHaveLength(64);
+        ->and($updatedVersion)->toHaveLength(64);
 
-    $replaced = $sync->execute(
-        'tests.models',
-        $model->id,
-        new TranslationMutationData(
-            translations: ['en' => ['name' => 'Only English']],
-            expectedVersion: $updated->version,
-            mode: TranslationSyncMode::Replace,
-        ),
-        $actor,
-    );
+    $replaced = $writer->sync($model, ['en' => ['name' => 'Only English']], $actor, $updatedVersion, TranslationSyncMode::Replace);
+    $replacedVersion = $versioner->version($replaced);
 
-    $deletion = app(DeleteTranslationResourceLocaleAction::class)->execute(
-        'tests.models',
-        $model->id,
-        new DeleteTranslationLocaleData('en', $replaced->version),
-        $actor,
-    );
+    $deleted = $writer->deleteLocale($model, 'en', $actor, $replacedVersion);
+    $deletedVersion = $versioner->version($model);
 
     expect($model->translations()->count())->toBe(0)
-        ->and($deletion->deleted)->toBeTrue()
-        ->and($deletion->version)->toHaveLength(64)
-        ->and($replaced->locales)->toBe(['en'])
-        ->and($replaced->version)->not->toBe($updated->version)
-        ->and($deletion->resource)->toBe('tests.models')
-        ->and($deletion->id)->toBe($model->id)
-        ->and($deletion->locale)->toBe('en')
+        ->and($deleted)->toBeTrue()
+        ->and($deletedVersion)->toHaveLength(64)
+        ->and($replaced->getAvailableLocales())->toBe(['en'])
+        ->and($replacedVersion)->not->toBe($updatedVersion)
         ->and($model->translations()->count())->toBe(0);
 
     Event::assertDispatched(
@@ -291,7 +325,7 @@ test('it centrally patches replaces and deletes registered resource translations
     );
 });
 
-test('it discovers domain-managed resources without bypassing their package actions', function (): void {
+test('it discovers owning-service-only resources without bypassing their package service', function (): void {
     app(TranslationResourceRegistry::class)->register(
         key: 'tests.domain-managed',
         modelClass: TestDomainManagedTranslatableModel::class,
@@ -299,45 +333,44 @@ test('it discovers domain-managed resources without bypassing their package acti
         displayColumns: ['slug'],
     );
     $model = TestDomainManagedTranslatableModel::create(['slug' => 'guarded']);
-    $actor = TranslationActorData::system('test');
+    $actor = SystemActor::Background;
     $versioner = app(TranslationResourceVersioner::class);
     $summary = collect(app(TranslationResourceGatherer::class)->summaries($actor))
         ->first(
-            static fn ($summary): bool => $summary->key === 'tests.domain-managed',
+            static fn ($summary): bool => $summary['key'] === 'tests.domain-managed',
         );
 
     expect($summary)
         ->not->toBeNull()
-        ->and($summary->mutationPolicy)->toBe('domain-action-only')
-        ->and(fn () => app(SyncTranslationResourceAction::class)->execute(
-            'tests.domain-managed',
-            $model->id,
-            new TranslationMutationData(
-                ['en' => ['name' => 'Unauthorized write']],
-                $versioner->version($model),
-            ),
-            new TranslationActorData('user', 'untrusted'),
+        ->and($summary['mutationPolicy'])->toBe('owning-service-only')
+        ->and(fn () => app(TranslationWriter::class)->sync(
+            $model,
+            ['en' => ['name' => 'Unauthorized write']],
+            new GenericUser(['id' => 'untrusted']),
+            $versioner->version($model),
         ))
         ->toThrow(TranslationResourceException::class, 'does not authorize')
-        ->and(fn () => app(SyncTranslationResourceAction::class)->execute(
-            'tests.domain-managed',
-            $model->id,
-            new TranslationMutationData(
-                ['en' => ['name' => 'Unsafe direct write']],
-                $versioner->version($model),
-            ),
+        ->and(fn () => app(TranslationWriter::class)->sync(
+            $model,
+            ['en' => ['name' => 'Unsafe direct write']],
             $actor,
+            $versioner->version($model),
         ))
-        ->toThrow(TranslationResourceException::class, 'package domain action');
+        ->toThrow(TranslationResourceException::class, 'owning package service');
 
-    app(TranslationWriter::class)->upsert($model, 'en', ['name' => 'Domain write']);
+    $model->getConnection()->transaction(fn () => app(RelatedTranslationStore::class)->upsert(
+        $model,
+        $model->translationDefinition(),
+        'en',
+        ['name' => 'Domain write'],
+    ));
 
-    expect(fn () => app(DeleteTranslationResourceLocaleAction::class)->execute(
-        'tests.domain-managed',
-        $model->id,
-        new DeleteTranslationLocaleData('en', $versioner->version($model)),
+    expect(fn () => app(TranslationWriter::class)->deleteLocale(
+        $model,
+        'en',
         $actor,
-    ))->toThrow(TranslationResourceException::class, 'package domain action')
+        $versioner->version($model),
+    ))->toThrow(TranslationResourceException::class, 'owning package service')
         ->and($model->translations()->count())->toBe(1);
 });
 
@@ -359,35 +392,74 @@ test('central writes roll back every locale and event when persistence fails', f
     });
     $model = TestTranslatableModel::create(['slug' => 'atomic']);
 
-    expect(fn () => app(SyncTranslationResourceAction::class)->execute(
-        'tests.models',
-        $model->id,
-        new TranslationMutationData(
-            translations: [
-                'en' => ['name' => 'Written first'],
-                'bg' => [],
-            ],
-            expectedVersion: app(TranslationResourceVersioner::class)->version($model),
-        ),
-        TranslationActorData::system('test'),
+    expect(fn () => app(TranslationWriter::class)->sync(
+        $model,
+        ['en' => ['name' => 'Written first'], 'bg' => []],
+        SystemActor::Background,
+        app(TranslationResourceVersioner::class)->version($model),
     ))->toThrow(QueryException::class)
         ->and($model->translations()->count())->toBe(0);
 
     Event::assertNotDispatched(TranslationResourceSynced::class);
 });
 
+test('central events carry scalar actor facts after outer commit and discard rolled back facts', function (): void {
+    Event::fake([
+        TranslationResourceSynced::class,
+        TranslationResourceLocaleDeleted::class,
+        TranslationResourcesGathered::class,
+    ]);
+    $actor = new User;
+    $actor->setTable('test_translatable_models');
+    $actor->setAttribute('slug', 'actor');
+    $actor->save();
+    $actor->setAttribute('private_payload', 'do-not-serialize');
+    app()->bind(TranslationResourceAuthorizer::class, static fn () => new class implements TranslationResourceAuthorizer
+    {
+        public function allows(Authenticatable|SystemActor $actor, TranslationResourceAbility $ability, TranslationResourceDefinition $resource, ?Model $record = null): bool
+        {
+            return $actor instanceof User;
+        }
+    });
+    $model = TestTranslatableModel::create(['slug' => 'committed']);
+    $writer = app(TranslationWriter::class);
+    $versioner = app(TranslationResourceVersioner::class);
+
+    DB::transaction(function () use ($writer, $model, $actor, $versioner): void {
+        $writer->sync($model, ['en' => ['name' => 'Committed']], $actor, $versioner->version($model));
+        Event::assertNotDispatched(TranslationResourceSynced::class);
+    });
+
+    Event::assertDispatched(TranslationResourceSynced::class, static fn (TranslationResourceSynced $event): bool => $event->actorType === User::class && $event->actorId === $actor->getKey()
+        && ! str_contains(serialize($event), 'do-not-serialize'));
+
+    $version = $versioner->version($model);
+    $writer->deleteLocale($model, 'en', $actor, $version);
+    Event::assertDispatched(TranslationResourceLocaleDeleted::class, static fn (TranslationResourceLocaleDeleted $event): bool => $event->actorType === User::class && $event->actorId === $actor->getKey()
+        && ! str_contains(serialize($event), 'do-not-serialize'));
+
+    app(TranslationResourceGatherer::class)->gather('tests.models', $actor);
+    Event::assertDispatched(TranslationResourcesGathered::class, static fn (TranslationResourcesGathered $event): bool => $event->actorType === User::class && $event->actorId === $actor->getKey()
+        && ! str_contains(serialize($event), 'do-not-serialize'));
+
+    $rolledBack = TestTranslatableModel::create(['slug' => 'rolled-back']);
+    expect(fn () => DB::transaction(function () use ($writer, $rolledBack, $actor, $versioner): void {
+        $writer->sync($rolledBack, ['en' => ['name' => 'Discarded']], $actor, $versioner->version($rolledBack));
+        throw new RuntimeException('rollback');
+    }))->toThrow(RuntimeException::class, 'rollback');
+    Event::assertDispatchedTimes(TranslationResourceSynced::class, 1);
+    expect($rolledBack->translations()->count())->toBe(0);
+});
+
 test('it rejects undeclared fields and unknown resources', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'invalid']);
 
-    expect(fn () => app(SyncTranslationResourceAction::class)->execute(
-        'tests.models',
-        $model->id,
-        new TranslationMutationData(
-            ['en' => ['not_declared' => 'value']],
-            app(TranslationResourceVersioner::class)->version($model),
-        ),
-        TranslationActorData::system('test'),
-    ))->toThrow(TranslationResourceException::class, 'undeclared fields')
+    expect(fn () => app(TranslationWriter::class)->sync(
+        $model,
+        ['en' => ['not_declared' => 'value']],
+        SystemActor::Background,
+        app(TranslationResourceVersioner::class)->version($model),
+    ))->toThrow(InvalidTranslatableFieldException::class)
         ->and(fn () => app(TranslationResourceRegistry::class)->get('missing.resource'))
         ->toThrow(TranslationResourceException::class, 'not registered');
 });
@@ -396,39 +468,24 @@ test('it rejects unauthorized actors and stale translation writes', function ():
     $model = TestTranslatableModel::create(['slug' => 'versioned']);
     $versioner = app(TranslationResourceVersioner::class);
     $initialVersion = $versioner->version($model);
-    $systemActor = TranslationActorData::system('test');
-    $untrustedActor = new TranslationActorData('user', 'untrusted');
-    $sync = app(SyncTranslationResourceAction::class);
+    $systemActor = SystemActor::Background;
+    $untrustedActor = new GenericUser(['id' => 'untrusted']);
+    $sync = app(TranslationWriter::class);
 
     expect(fn () => app(TranslationResourceGatherer::class)->gather(
         'tests.models',
         $untrustedActor,
     ))->toThrow(TranslationResourceException::class, 'does not authorize');
 
-    $sync->execute(
-        'tests.models',
-        $model->id,
-        new TranslationMutationData(
-            ['en' => ['name' => 'First revision']],
-            $initialVersion,
-        ),
-        $systemActor,
-    );
+    $sync->sync($model, ['en' => ['name' => 'First revision']], $systemActor, $initialVersion);
 
-    expect(fn () => $sync->execute(
-        'tests.models',
-        $model->id,
-        new TranslationMutationData(
-            ['en' => ['name' => 'Stale revision']],
-            $initialVersion,
-        ),
-        $systemActor,
-    ))->toThrow(TranslationResourceException::class, 'changed after it was read');
+    expect(fn () => $sync->sync($model, ['en' => ['name' => 'Stale revision']], $systemActor, $initialVersion))
+        ->toThrow(TranslationResourceException::class, 'changed after it was read');
 });
 
 test('resource versions recursively canonicalize object-shaped translated values', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'canonical-version']);
-    app(TranslationWriter::class)->upsert($model, 'en', ['name' => 'Versioned']);
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'Versioned']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $model->load('translations');
     $translation = $model->translations->firstOrFail();
     $translation->setAttribute('description', (object) ['second' => 2, 'first' => 1]);
@@ -500,15 +557,7 @@ test('it mutates resources on their declared non-default connection', function (
     $model = TestConnectedTranslatableModel::create(['slug' => 'connected']);
     $versioner = app(TranslationResourceVersioner::class);
 
-    app(SyncTranslationResourceAction::class)->execute(
-        'tests.connected',
-        $model->id,
-        new TranslationMutationData(
-            translations: ['en' => ['name' => 'Connected']],
-            expectedVersion: $versioner->version($model),
-        ),
-        TranslationActorData::system('test'),
-    );
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'Connected']], SystemActor::Background, $versioner->version($model));
 
     expect(
         DB::connection('translatable_tests')
@@ -521,11 +570,8 @@ test('it mutates resources on their declared non-default connection', function (
 
     $mismatched = TestMismatchedConnectionModel::query()->findOrFail($model->id);
 
-    expect(fn () => app(TranslationWriter::class)->upsert(
-        $mismatched,
-        'en',
-        ['name' => 'Cross-connection'],
-    ))->toThrow(TranslatableException::class, 'same connection');
+    expect(fn () => app(TranslationWriter::class)->sync($mismatched, ['en' => ['name' => 'Cross-connection']], SystemActor::Background, 'unavailable-revision'))
+        ->toThrow(TranslatableException::class, 'same connection');
 });
 
 test('it rejects related resources spanning multiple database connections', function (): void {

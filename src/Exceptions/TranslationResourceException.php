@@ -106,12 +106,12 @@ final class TranslationResourceException extends InvalidArgumentException implem
     }
 
     /**
-     * Create an exception when a package-owned domain action must perform the mutation.
+     * Create an exception when the owning package service must perform the mutation.
      */
-    public static function requiresDomainAction(string $resource): self
+    public static function requiresOwningService(string $resource): self
     {
         return new self(
-            "Translation resource [{$resource}] must be mutated through its package domain action.",
+            "Translation resource [{$resource}] must be mutated through its owning package service.",
         );
     }
 }

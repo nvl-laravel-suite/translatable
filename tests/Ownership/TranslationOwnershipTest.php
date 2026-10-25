@@ -8,10 +8,10 @@ use Illuminate\Support\Facades\Event;
 use Nvl\Ownership\Services\OwnershipRunner;
 use Nvl\Ownership\Services\OwnershipWriter;
 use Nvl\Ownership\ValueObjects\OwnershipAssignment;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Events\DomainEventDispatcher;
 use Nvl\Support\Ownership\Contracts\OwnershipContext;
 use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
-use Nvl\Translatable\Data\TranslationActorData;
 use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\TranslatableException;
@@ -19,6 +19,7 @@ use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\RelatedTranslationStore;
+use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\OwnershipTestCase;
 use Nvl\Translatable\Tests\Support\OwnershipActor;
@@ -36,7 +37,7 @@ it('keeps related translations in their persisted native owner partition', funct
     foreach ([7, 8] as $id) {
         $runner->run(OwnershipCompany::query()->findOrFail($id), $actor, function () use ($id): void {
             $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $assignment): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$assignment->attributes(), 'id' => $id * 10]));
-            app(TranslationWriter::class)->upsert($record, 'en', ['name' => 'Owner '.$id]);
+            app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Owner '.$id]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
             expect($record->translated('name', 'en'))->toBe('Owner '.$id)
                 ->and(OwnershipRelatedTranslation::query()->count())->toBe(1);
         });
@@ -49,7 +50,7 @@ it('allows the same self group and locale under different primary owners', funct
     foreach ([7, 8] as $id) {
         $runner->run(OwnershipCompany::query()->findOrFail($id), $actor, function () use ($id): void {
             $record = app(OwnershipWriter::class)->create(OwnershipSelfRecord::class, fn (OwnershipAssignment $assignment): OwnershipSelfRecord => OwnershipSelfRecord::query()->create([...$assignment->attributes(), 'id' => $id * 10, 'entry_key' => 'shared-group', 'locale' => 'en', 'name' => 'Owner '.$id]));
-            app(TranslationWriter::class)->upsert($record, 'bg', ['name' => 'BG '.$id]);
+            app(TranslationWriter::class)->sync($record, ['bg' => ['name' => 'BG '.$id]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
             expect($record->translated('name', 'bg'))->toBe('BG '.$id)
                 ->and(OwnershipSelfRecord::query()->count())->toBe(2);
         });
@@ -65,7 +66,7 @@ it('rolls back every locale and discards loaded rows when a later owned write fa
                 throw new RuntimeException('Rejected second locale.');
             }
         });
-        expect(fn () => app(TranslationWriter::class)->patch($record, ['en' => ['name' => 'first'], 'bg' => ['name' => 'second']]))->toThrow(RuntimeException::class, 'Rejected second locale.');
+        expect(fn () => app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'first'], 'bg' => ['name' => 'second']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record)))->toThrow(RuntimeException::class, 'Rejected second locale.');
         expect(OwnershipRelatedTranslation::query()->count())->toBe(0)
             ->and($record->relationLoaded('translations'))->toBeFalse();
     });
@@ -79,7 +80,7 @@ it('rejects a foreign loaded child and a forged parent relation before persisten
     foreach ([7, 8] as $id) {
         $runner->run(OwnershipCompany::query()->findOrFail($id), $actor, function () use ($id, &$parents, &$rows): void {
             $parents[$id] = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $assignment): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$assignment->attributes(), 'id' => $id * 10]));
-            $rows[$id] = app(TranslationWriter::class)->upsert($parents[$id], 'en', ['name' => 'Owner '.$id]);
+            $rows[$id] = app(TranslationWriter::class)->sync($parents[$id], ['en' => ['name' => 'Owner '.$id]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($parents[$id]))->getTranslation('en', withFallback: false);
         });
     }
     $runner->run(OwnershipCompany::query()->findOrFail(7), $actor, function () use ($parents, $rows): void {
@@ -101,7 +102,7 @@ it('restores queued translation facts to their captured owner after the publishi
     Event::listen(TranslationResourceSynced::class, [OwnershipTranslationListener::class, 'handle']);
     $runner = app(OwnershipRunner::class);
     $actor = OwnershipActor::query()->firstOrFail();
-    $fact = $runner->run(OwnershipCompany::query()->findOrFail(7), $actor, fn () => new TranslationResourceSynced('fixture.records', OwnershipRelatedRecord::class, 70, ['en'], TranslationSyncMode::Patch, TranslationActorData::system('test'), 'before', 'after'));
+    $fact = $runner->run(OwnershipCompany::query()->findOrFail(7), $actor, fn () => new TranslationResourceSynced('fixture.records', OwnershipRelatedRecord::class, 70, ['en'], TranslationSyncMode::Patch, SystemActor::class, SystemActor::Background->name, 'before', 'after'));
     $runner->run(OwnershipCompany::query()->findOrFail(8), $actor, function () use ($fact): void {
         DB::transaction(function () use ($fact): void {
             app(DomainEventDispatcher::class)->dispatch($fact, DB::connection());
@@ -136,7 +137,7 @@ it('excludes technical ownership columns from translated and shared values', fun
 it('rejects dirty native primary owner fields in batched eager translation handles', function (): void {
     app(OwnershipRunner::class)->run(OwnershipCompany::findOrFail(7), OwnershipActor::firstOrFail(), function (): void {
         $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $a): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$a->attributes(), 'id' => 701]));
-        app(TranslationWriter::class)->upsert($record, 'en', ['name' => 'Private']);
+        app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Private']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
         $record->setAttribute('company_id', 8);
         expect(fn () => (new OwnershipRelatedRecord)->newCollection([$record])->load('translations'))->toThrow(OwnershipViolation::class);
     });

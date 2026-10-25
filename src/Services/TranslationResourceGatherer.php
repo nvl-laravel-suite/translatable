@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Services;
 
 use BackedEnum;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -13,28 +14,28 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use LogicException;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Events\DomainEventDispatcher;
-use Nvl\Support\Tenancy\Contracts\TenantOwnershipConfiguration;
-use Nvl\Support\Tenancy\Exceptions\TenantBoundaryViolation;
-use Nvl\Support\Tenancy\Services\TenantResourceRegistry;
+use Nvl\Support\Ownership\Contracts\OwnershipContext;
+use Nvl\Support\Ownership\Enums\OwnershipContextMode;
+use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
+use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
-use Nvl\Translatable\Data\TranslationActorData;
-use Nvl\Translatable\Data\TranslationCoverageData;
-use Nvl\Translatable\Data\TranslationResourceRecordData;
-use Nvl\Translatable\Data\TranslationResourceSummaryData;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Events\TranslationResourcesGathered;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\TranslationResourceDefinition;
-use Nvl\Translatable\TranslationResourceQuery;
 use UnitEnum;
 
 /**
  * Gathers normalized logical resources and locale coverage across both storage strategies.
+ *
+ * @phpstan-type ResourceSummary array{key: string, label: string, model: class-string<Model>, fields: list<string>, total: int}
+ * @phpstan-type ResourceRecord array{resource: string, id: int|string, label: string, attributes: array<string, mixed>, translations: array<string, array<string, mixed>>, translatedLocales: list<string>, missingLocales: list<string>, version: string}
  */
 final readonly class TranslationResourceGatherer
 {
@@ -48,31 +49,26 @@ final readonly class TranslationResourceGatherer
         private TranslationResourceVersioner $versioner,
         private TranslationResourceLocator $locator,
         private TranslationOwnership $ownership,
-        private TenantResourceRegistry $tenantResources,
-        private TenantOwnershipConfiguration $tenantOwnership,
+        private OwnershipResourceRegistry $ownershipResources,
+        private OwnershipContext $ownershipContext,
         private DomainEventDispatcher $domainEvents,
     ) {}
 
     /**
      * Return metadata and locale coverage for every registered resource.
      *
-     * @return list<TranslationResourceSummaryData>
+     * @return list<ResourceSummary>
      */
-    public function summaries(TranslationActorData $actor): array
+    public function summaries(Authenticatable|SystemActor $actor): array
     {
-        return array_map(function (TranslationResourceDefinition $resource) use ($actor): TranslationResourceSummaryData {
+        return array_map(function (TranslationResourceDefinition $resource) use ($actor): array {
             $this->authorization->authorize($actor, TranslationResourceAbility::Report, $resource);
             $metadata = $resource->metadata($this->locales->supported());
             $model = $resource->newModel();
             $available = $this->isAvailable($model);
 
             if (! $available) {
-                return new TranslationResourceSummaryData(
-                    ...$metadata,
-                    available: false,
-                    total: 0,
-                    coverage: [],
-                );
+                return [...$metadata, 'available' => false, 'total' => 0, 'coverage' => []];
             }
 
             try {
@@ -81,12 +77,9 @@ final readonly class TranslationResourceGatherer
 
                 foreach ($metadata['locales'] as $locale) {
                     $translated = $this->translatedTotal($resource, $model, $locale);
-                    $coverage[$locale] = new TranslationCoverageData(
-                        translated: $translated,
-                        missing: max(0, $total - $translated),
-                    );
+                    $coverage[$locale] = ['translated' => $translated, 'missing' => max(0, $total - $translated)];
                 }
-            } catch (TenantBoundaryViolation $exception) {
+            } catch (OwnershipViolation $exception) {
                 if (! $this->allowsMetadataOnlyCatalog($model)) {
                     throw $exception;
                 }
@@ -94,44 +87,40 @@ final readonly class TranslationResourceGatherer
                 $total = 0;
                 $coverage = array_fill_keys(
                     $metadata['locales'],
-                    new TranslationCoverageData(translated: 0, missing: 0),
+                    ['translated' => 0, 'missing' => 0],
                 );
             }
 
-            return new TranslationResourceSummaryData(
-                ...$metadata,
-                available: true,
-                total: $total,
-                coverage: $coverage,
-            );
+            return [...$metadata, 'available' => true, 'total' => $total, 'coverage' => $coverage];
         }, $this->resources->all());
     }
 
     /**
      * Gather one page of normalized logical records from a registered resource.
      *
-     * @return LengthAwarePaginator<int, TranslationResourceRecordData>
+     * @param  array{search?: ?string, missing_locale?: ?string, page?: int, per_page?: int}  $query
+     * @return LengthAwarePaginator<int, ResourceRecord>
      */
     public function gather(
         string $resourceKey,
-        TranslationActorData $actor,
-        ?TranslationResourceQuery $query = null,
+        Authenticatable|SystemActor $actor,
+        array $query = [],
     ): LengthAwarePaginator {
         $resource = $this->resources->get($resourceKey);
-        $query ??= new TranslationResourceQuery;
+        $query = $this->validatedQuery($query);
         $model = $resource->newModel();
         $this->authorization->authorize($actor, TranslationResourceAbility::List, $resource);
         $this->assertAvailable($resource, $model);
         $builder = $this->locator->query($resource);
 
-        if ($query->perPage > $resource->maximumPageSize) {
+        if ($query['per_page'] > $resource->maximumPageSize) {
             throw TranslationResourceException::invalid(
                 "Translation resource [{$resourceKey}] page size exceeds {$resource->maximumPageSize}.",
             );
         }
 
-        $this->applySearch($builder, $resource, $model, $query->search);
-        $this->applyMissingLocale($builder, $resource, $model, $query->missingLocale);
+        $this->applySearch($builder, $resource, $model, $query['search']);
+        $this->applyMissingLocale($builder, $resource, $model, $query['missing_locale']);
         $definition = $model->translationDefinition();
         $defaultOrderColumn = $definition instanceof SelfTranslationDefinition
             ? $definition->groupKey
@@ -144,34 +133,36 @@ final readonly class TranslationResourceGatherer
         }
 
         $paginator = $builder->paginate(
-            perPage: $query->perPage,
+            perPage: $query['per_page'],
             pageName: 'page',
-            page: $query->page,
+            page: $query['page'],
         );
         $records = new EloquentCollection($paginator->items());
         $this->locator->loadTranslations($records);
         $paginator = $paginator->through(
-            fn (Model $record): TranslationResourceRecordData => $this->serialize($resource, $record),
+            fn (Model $record): array => $this->serialize($resource, $record),
         );
+        $actorIdentity = TranslationEventActor::identity($actor);
 
         $this->domainEvents->dispatch(new TranslationResourcesGathered(
             resource: $resourceKey,
             page: $paginator->currentPage(),
             count: $paginator->count(),
-            actor: $actor,
+            actorType: $actorIdentity['type'],
+            actorId: $actorIdentity['id'],
         ), $model->getConnection());
 
         return $paginator;
     }
 
-    /**
-     * Find and normalize one logical resource record.
+    /** Find and normalize one logical resource record.
+     * @return ResourceRecord
      */
     public function find(
         string $resourceKey,
         int|string $id,
-        TranslationActorData $actor,
-    ): TranslationResourceRecordData {
+        Authenticatable|SystemActor $actor,
+    ): array {
         $resource = $this->resources->get($resourceKey);
         $model = $resource->newModel();
         $this->assertAvailable($resource, $model);
@@ -179,6 +170,32 @@ final readonly class TranslationResourceGatherer
         $this->authorization->authorize($actor, TranslationResourceAbility::View, $resource, $record);
 
         return $this->serialize($resource, $record);
+    }
+
+    /**
+     * Validate the bounded native query shape before constructing a database query.
+     *
+     * @param  array<array-key, mixed>  $query
+     * @return array{search: ?string, missing_locale: ?string, page: int, per_page: int}
+     */
+    private function validatedQuery(array $query): array
+    {
+        $unknown = array_diff(array_keys($query), ['search', 'missing_locale', 'page', 'per_page']);
+        if ($unknown !== []) {
+            throw TranslationResourceException::invalid('Translation resource query contains unknown options.');
+        }
+        $search = $query['search'] ?? null;
+        $missingLocale = $query['missing_locale'] ?? null;
+        $page = $query['page'] ?? 1;
+        $perPage = $query['per_page'] ?? 25;
+        if (($search !== null && ! is_string($search))
+            || ($missingLocale !== null && ! is_string($missingLocale))
+            || ! is_int($page) || $page < 1
+            || ! is_int($perPage) || $perPage < 1 || $perPage > 500) {
+            throw TranslationResourceException::invalid('Translation resource query requires valid filters and a page size between 1 and 500.');
+        }
+
+        return ['search' => $search, 'missing_locale' => $missingLocale, 'page' => $page, 'per_page' => $perPage];
     }
 
     /**
@@ -498,19 +515,19 @@ final readonly class TranslationResourceGatherer
             return false;
         }
 
-        $resource = $this->tenantResources->get($ownershipResource);
+        $resource = $this->ownershipResources->get($ownershipResource);
 
-        return $resource->allowsPlatformCatalog
-            && $this->tenantOwnership->mode($resource) === 'platform';
+        return $resource->allowsCentral
+            && $this->ownershipContext->snapshot()->mode === OwnershipContextMode::Central;
     }
 
-    /**
-     * Normalize one logical translatable resource for central management consumers.
+    /** Normalize one logical translatable resource for central management consumers.
+     * @return ResourceRecord
      */
     private function serialize(
         TranslationResourceDefinition $resource,
         Model $record,
-    ): TranslationResourceRecordData {
+    ): array {
         if (! $record instanceof TranslatableResourceModel) {
             throw new LogicException('Registered translation records must be translatable resources.');
         }
@@ -567,18 +584,16 @@ final readonly class TranslationResourceGatherer
         ));
         $id = $record->translationResourceKey();
 
-        return new TranslationResourceRecordData(
-            resource: $resource->key,
-            id: $id,
-            label: $labelParts !== []
-                ? implode(' · ', $labelParts)
-                : class_basename($record).' #'.$id,
-            attributes: $attributes,
-            translations: $translations,
-            translatedLocales: $translatedLocales,
-            missingLocales: $missingLocales,
-            version: $this->versioner->version($record),
-        );
+        return [
+            'resource' => $resource->key,
+            'id' => $id,
+            'label' => $labelParts !== [] ? implode(' · ', $labelParts) : class_basename($record).' #'.$id,
+            'attributes' => $attributes,
+            'translations' => $translations,
+            'translatedLocales' => $translatedLocales,
+            'missingLocales' => $missingLocales,
+            'version' => $this->versioner->version($record),
+        ];
     }
 
     /**
