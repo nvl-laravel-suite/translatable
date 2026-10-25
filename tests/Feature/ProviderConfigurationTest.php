@@ -13,16 +13,15 @@ use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 
 test('partial consumer config preserves nested translatable defaults', function (): void {
     config()->set('nvl-translatable', [
-        'middleware' => [
-            'query_parameter' => 'translation_locale',
+        'fallback' => [
+            'on_null' => false,
         ],
     ]);
 
     (new TranslatableServiceProvider(app()))->register();
 
-    expect(config('nvl-translatable.middleware.query_parameter'))->toBe('translation_locale')
-        ->and(config('nvl-translatable.middleware.session_key'))->toBe('content_locale')
-        ->and(config('nvl-translatable.middleware.cookie_minutes'))->toBe(525_600)
+    expect(config('nvl-translatable.fallback.on_null'))->toBeFalse()
+        ->and(config('nvl-translatable.fallback.policy'))->toBe('configured')
         ->and(config('nvl-translatable.transactions.attempts'))->toBe(3);
 });
 

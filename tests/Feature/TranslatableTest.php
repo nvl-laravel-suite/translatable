@@ -285,7 +285,7 @@ test('it rejects malformed write-map shapes before changing translation rows', f
         ->and($model->translations()->count())->toBe(0);
 });
 
-test('it eager loads requested and fallback translations without per-model queries', function (): void {
+test('it eager loads translated rows in bounded queries while freshly admitting each loaded read', function (): void {
     $writer = app(TranslationWriter::class);
     $create = static function (int $index) use ($writer): void {
         $model = TestTranslatableModel::create(['slug' => "slug-{$index}"]);
@@ -301,25 +301,33 @@ test('it eager loads requested and fallback translations without per-model queri
         $names = $models->map(
             static fn (TestTranslatableModel $model): mixed => $model->translated('name', 'bg'),
         );
-        $queryCount = count(DB::getQueryLog());
+        $queries = array_column(DB::getQueryLog(), 'query');
         DB::disableQueryLog();
 
-        return [$queryCount, $names->all()];
+        return [
+            'total' => count($queries),
+            'translation_reads' => count(array_filter($queries, static fn (string $query): bool => str_starts_with($query, 'select') && str_contains($query, '"test_translatable_models_i18n"')
+                && ! str_contains($query, 'sqlite_master'))),
+            'admission_probes' => count(array_filter($queries, static fn (string $query): bool => str_contains($query, 'sqlite_master'))),
+            'names' => $names->all(),
+        ];
     };
 
     $create(1);
-    [$singleQueryCount] = $measure();
+    $single = $measure();
 
     foreach (range(2, 25) as $index) {
         $create($index);
     }
 
-    [$populatedQueryCount, $names] = $measure();
+    $populated = $measure();
 
-    expect($names)->toHaveCount(25)
-        ->and($names[0])->toBe('Name 1')
-        ->and($singleQueryCount)->toBeLessThanOrEqual(10)
-        ->and($populatedQueryCount)->toBe($singleQueryCount);
+    expect($populated['names'])->toHaveCount(25)
+        ->and($populated['names'][0])->toBe('Name 1')
+        ->and($single['translation_reads'])->toBe(1)
+        ->and($populated['translation_reads'])->toBe($single['translation_reads'])
+        ->and($populated['admission_probes'])->toBeGreaterThanOrEqual(25)
+        ->and($populated['total'] - $single['total'])->toBeLessThanOrEqual(24 * 3);
 });
 
 test('it resolves progressively less-specific locale parents', function (): void {

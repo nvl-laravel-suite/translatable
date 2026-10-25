@@ -165,20 +165,6 @@ final readonly class TranslationDoctor
             $errors[] = 'translatable.transactions.attempts must be a positive integer.';
         }
 
-        foreach (['query_parameter', 'session_key', 'cookie_name'] as $option) {
-            $value = $this->config->get("nvl-translatable.middleware.{$option}");
-
-            if ($value !== null && (! is_string($value) || trim($value) === '')) {
-                $errors[] = "translatable.middleware.{$option} must be a non-empty string or null.";
-            }
-        }
-
-        $cookieMinutes = $this->config->get('nvl-translatable.middleware.cookie_minutes');
-
-        if (! is_int($cookieMinutes) || $cookieMinutes < 1) {
-            $errors[] = 'translatable.middleware.cookie_minutes must be a positive integer.';
-        }
-
         return $errors;
     }
 

@@ -9,10 +9,13 @@ if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Enums\TranslationStorageStrategy;
 use Nvl\Translatable\Enums\TranslationSyncMode;
+use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
+use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\TranslationDoctor;
@@ -20,6 +23,7 @@ use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Support\TestAllowEmptySelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 
 beforeEach(function (): void {
@@ -139,6 +143,34 @@ test('it validates fields and preserves the final grouped locale row', function 
             ->all(),
     )->toBe(['bg']);
 });
+
+test('an opted-in self group can become empty through native mutation', function (string $mutation): void {
+    app(TranslationResourceRegistry::class)->register(
+        'tests.allow-empty-self', TestAllowEmptySelfTranslatableModel::class, 'Allow empty self',
+    );
+    Event::fake([TranslationResourceSynced::class, TranslationResourceLocaleDeleted::class]);
+    $model = TestAllowEmptySelfTranslatableModel::create([
+        'entry_key' => 'catalog.removable', 'locale' => 'en', 'name' => 'Only row',
+    ]);
+    $version = app(TranslationResourceVersioner::class)->version($model);
+    $emptyVersion = app(TranslationResourceVersioner::class)->emptySelfGroupVersion($model);
+    $writer = app(TranslationWriter::class);
+
+    if ($mutation === 'delete') {
+        expect($writer->deleteLocale($model, 'en', SystemActor::Background, $version))->toBeTrue();
+        Event::assertDispatched(TranslationResourceLocaleDeleted::class, static fn (TranslationResourceLocaleDeleted $event): bool => $event->ownerId === 'catalog.removable' && $event->previousVersion === $version
+            && $event->version === $emptyVersion);
+    } else {
+        $returned = $writer->sync($model, [], SystemActor::Background, $version, TranslationSyncMode::Replace);
+        expect($returned->translationResourceKey())->toBe('catalog.removable')
+            ->and($returned->exists)->toBeFalse()
+            ->and($returned->getRelation('translations'))->toBeEmpty();
+        Event::assertDispatched(TranslationResourceSynced::class, static fn (TranslationResourceSynced $event): bool => $event->ownerId === 'catalog.removable' && $event->previousVersion === $version
+            && $event->locales === [] && $event->version === $emptyVersion);
+    }
+
+    expect(TestAllowEmptySelfTranslatableModel::query()->count())->toBe(0);
+})->with(['delete final locale' => ['delete'], 'replace with empty map' => ['replace']]);
 
 test('self-row service mutations preserve identity and loaded group state', function (): void {
     $model = TestSelfTranslatableModel::create([

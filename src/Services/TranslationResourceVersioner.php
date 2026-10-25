@@ -10,6 +10,7 @@ use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use JsonSerializable;
+use Nvl\Translatable\Contracts\SelfTranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\SelfTranslationDefinition;
@@ -88,6 +89,27 @@ final class TranslationResourceVersioner
         }
         $state['translations'] = $rows;
 
+        return $this->hashState($state);
+    }
+
+    /** Capture a terminal self-group revision while its final representative is still admitted. */
+    public function emptySelfGroupVersion(Model&SelfTranslatableModel $owner): string
+    {
+        $definition = $owner->translationDefinition();
+        if (! $definition->allowDeletingLastTranslation) {
+            throw TranslationResourceException::invalid('The self-translation group does not permit an empty revision.');
+        }
+
+        return $this->hashState([
+            'id' => $owner->translationResourceKey(),
+            'ownership' => $this->ownership->partitionKey($owner, $definition),
+            'translations' => [],
+        ]);
+    }
+
+    /** @param array<string, mixed> $state */
+    private function hashState(array $state): string
+    {
         return hash('sha256', (string) json_encode(
             $state,
             JSON_PRESERVE_ZERO_FRACTION | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,

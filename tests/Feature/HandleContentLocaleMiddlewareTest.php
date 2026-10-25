@@ -11,14 +11,38 @@ use Illuminate\Session\ArraySessionHandler;
 use Illuminate\Session\Store;
 use Illuminate\Support\Facades\Cookie;
 use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
-use Nvl\Translatable\Middleware\HandleContentLocale;
+use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\ContentLocale;
+use Nvl\Translatable\Tests\Fixtures\Consumer\HandleContentLocale;
 use Symfony\Component\HttpFoundation\Response;
 
 beforeEach(function (): void {
     config()->set('nvl-translatable.locales', ['en', 'bg']);
     config()->set('nvl-translatable.fallback_locales', ['en']);
+    config()->set('consumer.content_locale', [
+        'query_parameter' => 'content_lang',
+        'session_key' => 'content_locale',
+        'cookie_name' => 'content_locale',
+        'cookie_minutes' => 525_600,
+    ]);
     app(ContentLocale::class)->reset();
+});
+
+test('the consumer adapter validates its own HTTP preference settings', function (array $configuration, array $query): void {
+    config()->set($configuration);
+
+    expect(fn () => app(HandleContentLocale::class)->handle(
+        localeRequest(query: $query),
+        static fn (): Response => new Response('ok'),
+    ))->toThrow(TranslatableException::class, 'consumer.content_locale');
+})->with([
+    'invalid query setting' => [['consumer.content_locale.query_parameter' => ''], []],
+    'invalid cookie duration' => [['consumer.content_locale.cookie_minutes' => 0], ['content_lang' => 'bg']],
+]);
+
+test('HTTP locale middleware and its preferences are owned by the consumer fixture', function (): void {
+    expect(class_exists('Nvl\\Translatable\\Middleware\\HandleContentLocale'))->toBeFalse()
+        ->and(config('nvl-translatable.middleware'))->toBeNull();
 });
 
 test('query locale takes precedence and persists to the session and cookie', function (): void {

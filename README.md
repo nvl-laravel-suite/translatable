@@ -83,6 +83,8 @@ TranslationResourceVersioner::version($article) is the supported current revisio
 
 TranslationWriter starts its own transaction on the model's actual connection, locks and revalidates the canonical resource, checks host authorization, and compares the mandatory expected revision before writing. Patch preserves omitted locales; Replace deletes them. Explicit null is a value and differs from an omitted field. Unsupported locales, undeclared fields, oversized payloads, stale versions, and out-of-scope resources fail before mutation. Events dispatch after commit.
 
+For a grouped self-row definition with `allowDeletingLastTranslation: true`, deleting its final locale or replacing it with an empty map removes the visible logical group. Empty Replace returns the group identity and an empty `translations` relation; its model is non-persisted after hard deletion or accurately marked as trashed after soft deletion. The committed event contains the resulting empty-group revision. The group has no live representative for another writer call until the owning domain workflow creates or restores a row. The default definition protects its final locale.
+
 The optional resource key may be omitted only when exactly one resource is registered for the concrete model. An explicit key must still match that model and its canonical storage, query scope, and actor policy. TranslationMutationPolicy::OwningServiceOnly reserves mutations for the owning domain service; generic TranslationWriter rejects them. Domain services may use the model's cast and storage seams inside their own authorized workflow.
 
 ## Catalog reads
@@ -99,6 +101,10 @@ TranslationResourceGatherer returns native arrays, not package DTOs:
     $record = $gatherer->find('articles', $article->getKey(), $user);
 
 Queries are bounded by the resource's allowed columns, stable order, and maximum page size. Related and grouped-row storage yield one logical resource per record. The host owns HTTP parsing, controllers, Actions, Data objects, and frontend types. This package does not register their providers or expose a generic HTTP mutation endpoint.
+
+## Consumer HTTP locale adapter
+
+The host chooses how query, stored preference, session, and cookie values select a request locale. A complete consumer-owned middleware example and its precedence/restoration tests live in [tests/Fixtures/Consumer/HandleContentLocale.php](tests/Fixtures/Consumer/HandleContentLocale.php) and [HandleContentLocaleMiddlewareTest.php](tests/Feature/HandleContentLocaleMiddlewareTest.php). Copy or adapt it into the application's HTTP layer and keep its `consumer.content_locale.*` settings in the application. Translatable publishes no middleware class or HTTP settings and has no direct Symfony HTTP requirement.
 
 ## Locale and diagnostics
 

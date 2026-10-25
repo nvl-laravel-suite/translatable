@@ -65,8 +65,8 @@ final readonly class TranslationWriter
         TranslationSyncMode $mode = TranslationSyncMode::Patch,
         ?string $resourceKey = null,
     ): Model {
-        $this->assertPersistedResource($owner);
         $resource = $this->resolveResource($owner, $resourceKey);
+        $this->assertPersistedResource($owner);
         $this->assertActor($actor);
 
         try {
@@ -78,17 +78,28 @@ final readonly class TranslationWriter
                 $previousVersion = $this->versioner->version($record);
                 $this->assertVersion($resource->key, $previousVersion, $expectedVersion);
                 $normalized = $this->normalizeTranslationMap($record, $translations);
+                $definition = $record->translationDefinition();
+                $emptyVersion = $mode === TranslationSyncMode::Replace && $normalized === []
+                    && $record instanceof SelfTranslatableModel && $definition instanceof SelfTranslationDefinition
+                    && $definition->allowDeletingLastTranslation
+                        ? $this->versioner->emptySelfGroupVersion($record)
+                        : null;
 
                 foreach ($normalized as $locale => $attributes) {
-                    $this->storeUpsert($record, $record->translationDefinition(), $locale, $attributes);
+                    $this->storeUpsert($record, $definition, $locale, $attributes);
                 }
                 if ($mode === TranslationSyncMode::Replace) {
                     $this->deleteExcept($record, array_keys($normalized));
                 }
 
-                $record = $this->locator->lock($resource, $owner->translationResourceKey());
-                $this->locator->loadTranslations(new Collection([$record]));
-                $version = $this->versioner->version($record);
+                if ($emptyVersion !== null) {
+                    $this->reflectEmptySelfGroup($record);
+                    $version = $emptyVersion;
+                } else {
+                    $record = $this->locator->lock($resource, $owner->translationResourceKey());
+                    $this->locator->loadTranslations(new Collection([$record]));
+                    $version = $this->versioner->version($record);
+                }
                 $actorIdentity = TranslationEventActor::identity($actor);
                 $this->domainEvents->dispatch(new TranslationResourceSynced(
                     resource: $resource->key,
@@ -117,8 +128,8 @@ final readonly class TranslationWriter
         string $expectedVersion,
         ?string $resourceKey = null,
     ): bool {
-        $this->assertPersistedResource($owner);
         $resource = $this->resolveResource($owner, $resourceKey);
+        $this->assertPersistedResource($owner);
         $this->assertActor($actor);
 
         try {
@@ -130,11 +141,18 @@ final readonly class TranslationWriter
                 $previousVersion = $this->versioner->version($record);
                 $this->assertVersion($resource->key, $previousVersion, $expectedVersion);
                 $normalizedLocale = $record->translationDefinition()->assertLocale($this->locales->assertSupported($locale));
+                $emptyVersion = $this->emptySelfVersionForDeletedLocale($record, $normalizedLocale);
                 $deleted = $this->deleteStoredLocale($record, $normalizedLocale);
 
                 if ($deleted) {
-                    $record = $this->locator->lock($resource, $owner->translationResourceKey());
-                    $this->locator->loadTranslations(new Collection([$record]));
+                    if ($emptyVersion !== null) {
+                        $this->reflectEmptySelfGroup($record);
+                        $version = $emptyVersion;
+                    } else {
+                        $record = $this->locator->lock($resource, $owner->translationResourceKey());
+                        $this->locator->loadTranslations(new Collection([$record]));
+                        $version = $this->versioner->version($record);
+                    }
                     $actorIdentity = TranslationEventActor::identity($actor);
                     $this->domainEvents->dispatch(new TranslationResourceLocaleDeleted(
                         resource: $resource->key,
@@ -144,7 +162,7 @@ final readonly class TranslationWriter
                         actorType: $actorIdentity['type'],
                         actorId: $actorIdentity['id'],
                         previousVersion: $previousVersion,
-                        version: $this->versioner->version($record),
+                        version: $version,
                     ), $record->getConnection());
                 }
 
@@ -155,12 +173,60 @@ final readonly class TranslationWriter
         }
     }
 
+    /** Capture the terminal revision only when the admitted self group has one visible row. */
+    private function emptySelfVersionForDeletedLocale(Model&TranslatableResourceModel $record, string $locale): ?string
+    {
+        $definition = $record->translationDefinition();
+        if (! $record instanceof SelfTranslatableModel || ! $definition instanceof SelfTranslationDefinition
+            || ! $definition->allowDeletingLastTranslation) {
+            return null;
+        }
+        $loaded = $record->getRelation('translations');
+        if (! $loaded instanceof Collection || $loaded->count() !== 1) {
+            return null;
+        }
+        $only = $loaded->first();
+        if (! $only instanceof Model || $only->getAttribute($definition->localeKey) !== $locale) {
+            return null;
+        }
+
+        return $this->versioner->emptySelfGroupVersion($record);
+    }
+
+    /** Reflect the removed live group without pretending a hard-deleted row still exists. */
+    private function reflectEmptySelfGroup(Model&TranslatableResourceModel $record): void
+    {
+        $record->setRelation('translations', new Collection);
+        if (method_exists($record, 'getDeletedAtColumn')) {
+            $column = $record->getDeletedAtColumn();
+            if (! is_string($column) || $column === '') {
+                throw TranslationResourceException::invalid('The soft-delete column must be a non-empty string.');
+            }
+            $deletedAt = $record->getConnection()->table($record->getTable())
+                ->where($record->getKeyName(), $record->getRawOriginal($record->getKeyName()))
+                ->value($column);
+            if ($deletedAt !== null) {
+                $record->setAttribute($column, $deletedAt);
+                $record->syncOriginalAttribute($column);
+
+                return;
+            }
+        }
+
+        $record->exists = false;
+    }
+
     /** Resolve an exact catalog entry when one model has multiple visibility registrations. */
     private function resolveResource(Model&TranslatableResourceModel $owner, ?string $resourceKey): TranslationResourceDefinition
     {
         $resource = $resourceKey === null ? $this->resources->forModel($owner) : $this->resources->get($resourceKey);
         if ($resource->modelClass !== $owner::class) {
             throw TranslationResourceException::invalid('The translation resource key does not match the owner model.');
+        }
+        $canonical = $resource->newModel();
+        if ($owner->getTable() !== $canonical->getTable()
+            || $owner->getConnection() !== $canonical->getConnection()) {
+            throw TranslationResourceException::invalid('The translation resource owner must use canonical storage.');
         }
 
         return $resource;

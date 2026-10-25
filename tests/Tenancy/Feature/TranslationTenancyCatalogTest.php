@@ -297,6 +297,44 @@ it('rechecks live owner, store, generation, and trigger state on a consecutive p
     'required trigger dropped' => ['trigger', OwnershipSchemaNotReady::class],
 ]);
 
+it('rechecks unowned eager reads after either physical table gains an ownership marker', function (string $table, bool $hasTranslation): void {
+    TenantTranslationScenario::install();
+    config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
+    Schema::create('test_translatable_models_i18n', static function (Blueprint $table): void {
+        $table->id();
+        $table->foreignId('test_translatable_model_id');
+        $table->string('locale');
+        $table->string('name')->nullable();
+    });
+    $model = TestTranslatableModel::create(['slug' => 'unowned']);
+    if ($hasTranslation) {
+        $model->translations()->create(['locale' => 'en', 'name' => 'Before adoption']);
+    }
+    $loaded = TestTranslatableModel::query()->with('translations')->findOrFail($model->getKey());
+    expect($loaded->translated('name', 'en'))->toBe($hasTranslation ? 'Before adoption' : null);
+
+    DB::table('nvl_ownership_resource_markers')->insert([
+        'resource' => 'test.late-'.str_replace('_', '-', $table),
+        'physical_table' => $table,
+        'state' => 'active',
+        'schema_version' => 1,
+        'configuration_hash' => str_repeat('a', 64),
+        'generation' => (string) Str::uuid(),
+        'coordinator_store' => (string) Str::uuid(),
+        'source_store' => (string) Str::uuid(),
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+
+    expect(fn () => $loaded->translated('name', 'en'))->toThrow(OwnershipSchemaNotReady::class)
+        ->and(fn () => $loaded->translations)->toThrow(OwnershipSchemaNotReady::class);
+})->with([
+    'owner table with loaded row' => ['test_translatable_models', true],
+    'owner table with empty relation' => ['test_translatable_models', false],
+    'child table with loaded row' => ['test_translatable_models_i18n', true],
+    'child table with empty relation' => ['test_translatable_models_i18n', false],
+]);
+
 it('rejects a retained preloaded version after the tenant context changes', function (): void {
     $s = TenantTranslationScenario::install();
     foreach (range(1, 8) as $index) {

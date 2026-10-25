@@ -8,14 +8,18 @@ if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Enums\TranslationSyncMode;
+use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
+use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Support\TestAllowEmptySoftDeletingSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestSoftDeletingSelfTranslatableModel;
 
 beforeEach(function (): void {
@@ -152,6 +156,37 @@ test('soft deleted locales do not count toward final locale protection', functio
         ->toThrow(TranslatableException::class, 'final locale row')
         ->and(TestSoftDeletingSelfTranslatableModel::query()->count())->toBe(1);
 });
+
+test('an opted-in soft-deleted self group can become empty without losing its event identity', function (string $mutation): void {
+    app(TranslationResourceRegistry::class)->register(
+        'tests.allow-empty-soft-self', TestAllowEmptySoftDeletingSelfTranslatableModel::class, 'Allow empty soft self',
+    );
+    Event::fake([TranslationResourceSynced::class, TranslationResourceLocaleDeleted::class]);
+    $model = TestAllowEmptySoftDeletingSelfTranslatableModel::create([
+        'entry_key' => 'guide.empty', 'locale' => 'en', 'name' => 'Only row',
+    ]);
+    $version = app(TranslationResourceVersioner::class)->version($model);
+    $emptyVersion = app(TranslationResourceVersioner::class)->emptySelfGroupVersion($model);
+    $writer = app(TranslationWriter::class);
+
+    if ($mutation === 'delete') {
+        expect($writer->deleteLocale($model, 'en', SystemActor::Background, $version))->toBeTrue();
+        Event::assertDispatched(TranslationResourceLocaleDeleted::class, static fn (TranslationResourceLocaleDeleted $event): bool => $event->ownerId === 'guide.empty' && $event->previousVersion === $version
+            && $event->version === $emptyVersion);
+    } else {
+        $returned = $writer->sync($model, [], SystemActor::Background, $version, TranslationSyncMode::Replace);
+        expect($returned->translationResourceKey())->toBe('guide.empty')
+            ->and($returned->exists)->toBeTrue()
+            ->and($returned->trashed())->toBeTrue()
+            ->and($returned->getRelation('translations'))->toBeEmpty();
+        Event::assertDispatched(TranslationResourceSynced::class, static fn (TranslationResourceSynced $event): bool => $event->ownerId === 'guide.empty' && $event->previousVersion === $version
+            && $event->locales === [] && $event->version === $emptyVersion);
+    }
+
+    expect(TestAllowEmptySoftDeletingSelfTranslatableModel::query()->count())->toBe(0)
+        ->and(TestAllowEmptySoftDeletingSelfTranslatableModel::withTrashed()->count())->toBe(1)
+        ->and(TestAllowEmptySoftDeletingSelfTranslatableModel::withTrashed()->firstOrFail()->archived_at)->not->toBeNull();
+})->with(['delete final locale' => ['delete'], 'replace with empty map' => ['replace']]);
 
 test('central reads retain active resources and omit deleted locales from coverage', function (): void {
     $model = TestSoftDeletingSelfTranslatableModel::create([

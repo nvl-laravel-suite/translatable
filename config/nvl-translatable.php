@@ -64,20 +64,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Optional HTTP Locale Selection
-    |--------------------------------------------------------------------------
-    |
-    | Set a source name to null to disable that source.
-    */
-    'middleware' => [
-        'query_parameter' => 'content_lang',
-        'session_key' => 'content_locale',
-        'cookie_name' => 'content_locale',
-        'cookie_minutes' => 525_600,
-    ],
-
-    /*
-    |--------------------------------------------------------------------------
     | Central Translation Resources
     |--------------------------------------------------------------------------
     |

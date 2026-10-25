@@ -7,6 +7,8 @@ description: Use when designing, implementing, migrating, integrating, testing, 
 
 Translatable owns locale storage and its native service contract. The host owns HTTP requests, controllers, Actions, Data objects, and frontend types. Do not invent a package facade to restore retired public operations.
 
+The package publishes no HTTP middleware or query/session/cookie configuration. Use `tests/Fixtures/Consumer/HandleContentLocale.php` only as a host-owned example, and keep its `consumer.content_locale.*` settings in the application.
+
 ## Start with the concrete storage
 
 1. Inspect the model, migration, actual connection, primary and logical keys, casts, indexes, and host authorization.
@@ -44,6 +46,8 @@ Read the current revision with TranslationResourceVersioner::version() on a cano
     );
 
 Patch preserves omitted locales. Replace removes omitted locales. An explicit null is different from an omitted field. Reject unknown locales or fields, oversized payloads, stale revisions, and wrong model/resource combinations before mutation. The resource key may be omitted only when the concrete model has exactly one registration. An explicit key still enforces exact model, canonical storage, query scope, and actor policy.
+
+`SelfTranslationDefinition::allowDeletingLastTranslation` is an explicit opt-in. Final delete and empty Replace then remove the live group; empty Replace returns the group identity with an empty relation, marked non-persisted after hard deletion or trashed after soft deletion. The committed event carries the terminal revision. Otherwise preserve final-row protection.
 
 Use TranslationMutationPolicy::OwningServiceOnly when a domain service must own related validation or lifecycle. TranslationWriter rejects generic writes for such resources. Genuine model casts and storage hooks may stage or persist fields inside that separately authorized service workflow; they have no independent actor semantics. Avoid raw SQL, bulk query writes, and client-supplied ownership columns.
 

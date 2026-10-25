@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Auth\User;
@@ -23,7 +24,6 @@ use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
 use Nvl\Translatable\Events\TranslationResourcesGathered;
 use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
-use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
@@ -109,6 +109,59 @@ test('native writer rejects ambiguous and mismatched resource selection before p
         ->toThrow(TranslationResourceException::class, 'not registered')
         ->and($owner->translations()->count())->toBe(0);
 });
+
+test('native writer rejects a supplied model on noncanonical storage before opening its transaction', function (string $change): void {
+    $owner = TestTranslatableModel::create(['slug' => 'canonical']);
+    $version = app(TranslationResourceVersioner::class)->version($owner);
+    $forged = clone $owner;
+    if ($change === 'table') {
+        Schema::create('test_translatable_models_shadow', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('slug');
+            $table->timestamps();
+        });
+        DB::table('test_translatable_models_shadow')->insert(['id' => $owner->getKey(), 'slug' => 'shadow']);
+        $forged->setTable('test_translatable_models_shadow');
+    } else {
+        config()->set('database.connections.translatable_shadow', [
+            'driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '',
+        ]);
+        DB::purge('translatable_shadow');
+        DB::connection('translatable_shadow')->getSchemaBuilder()->create('test_translatable_models', static function (Blueprint $table): void {
+            $table->id();
+            $table->string('slug');
+            $table->timestamps();
+        });
+        DB::connection('translatable_shadow')->table('test_translatable_models')->insert(['id' => $owner->getKey(), 'slug' => 'shadow']);
+        $forged->setConnection('translatable_shadow');
+    }
+    $scopeCalls = 0;
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.selected-storage',
+        modelClass: TestTranslatableModel::class,
+        label: 'Selected storage',
+        queryScope: static function (Builder $query) use (&$scopeCalls): Builder {
+            $scopeCalls++;
+
+            return $query;
+        },
+    );
+    $transactionsStarted = 0;
+    Event::listen(TransactionBeginning::class, static function () use (&$transactionsStarted): void {
+        $transactionsStarted++;
+    });
+
+    expect(fn () => app(TranslationWriter::class)->sync(
+        $forged,
+        ['en' => ['name' => 'Unsafe']],
+        SystemActor::Background,
+        $version,
+        resourceKey: 'tests.selected-storage',
+    ))->toThrow(TranslationResourceException::class, 'canonical storage')
+        ->and($scopeCalls)->toBe(0)
+        ->and($transactionsStarted)->toBe(0)
+        ->and($owner->translations()->count())->toBe(0);
+})->with(['different table' => ['table'], 'different actual connection' => ['connection']]);
 
 test('native writer enforces the selected resource visibility scope', function (): void {
     $owner = TestTranslatableModel::create(['slug' => 'hidden']);
@@ -571,7 +624,7 @@ test('it mutates resources on their declared non-default connection', function (
     $mismatched = TestMismatchedConnectionModel::query()->findOrFail($model->id);
 
     expect(fn () => app(TranslationWriter::class)->sync($mismatched, ['en' => ['name' => 'Cross-connection']], SystemActor::Background, 'unavailable-revision'))
-        ->toThrow(TranslatableException::class, 'same connection');
+        ->toThrow(TranslationResourceException::class, 'not registered');
 });
 
 test('it rejects related resources spanning multiple database connections', function (): void {

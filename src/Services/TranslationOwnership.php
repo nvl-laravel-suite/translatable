@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Services;
 
 use Closure;
-use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -24,11 +23,9 @@ use Nvl\Support\Ownership\Services\OwnershipIdentityFields;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Support\Ownership\Services\PersistedOwnershipStorage;
 use Nvl\Support\Ownership\ValueObjects\OwnerReference;
-use Nvl\Support\Ownership\ValueObjects\OwnershipSnapshot;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\TranslationDefinition;
-use WeakMap;
 
 /**
  * Connects translation operations to exact model-declared primary ownership.
@@ -37,9 +34,6 @@ use WeakMap;
  */
 final readonly class TranslationOwnership
 {
-    /** @var WeakMap<Model, array{context: OwnershipSnapshot, definition: TranslationDefinition, key: int|string, connection: Connection, table: string}> */
-    private WeakMap $admittedOwners;
-
     /** Return the native ownership failure for an invalid translation boundary. */
     public function violation(string $message): OwnershipViolation
     {
@@ -54,9 +48,7 @@ final readonly class TranslationOwnership
         private OwnershipReadiness $readiness,
         private PersistedOwnershipStorage $storage,
         private OwnershipWriter $writer,
-    ) {
-        $this->admittedOwners = new WeakMap;
-    }
+    ) {}
 
     /** Coordinate every owned new locale row through its exact registered primary assignment.
      * @template T of Model
@@ -177,13 +169,6 @@ final readonly class TranslationOwnership
                     || $owner->isDirty([$owner->getKeyName(), $definition->ownerKey])) {
                     throw new OwnershipViolation('Eager translations require unchanged canonical owner identities.');
                 }
-                $this->admittedOwners[$owner] = [
-                    'context' => $this->context->snapshot(),
-                    'definition' => $definition,
-                    'key' => $key,
-                    'connection' => $owner->getConnection(),
-                    'table' => $owner->getTable(),
-                ];
                 $identities[] = [$definition->foreignKey($owner->getTable()) => $key];
             }
 
@@ -220,26 +205,6 @@ final readonly class TranslationOwnership
         }
 
         return $identities;
-    }
-
-    /** Reuse only an unchanged eager owner admitted in the same scoped operation.
-     * @return array<string, int|string>|null
-     */
-    public function admittedOwnerIdentity(Model $owner, RelatedTranslationDefinition $definition): ?array
-    {
-        $admitted = $this->admittedOwners[$owner] ?? null;
-        if ($admitted === null || $admitted['definition'] != $definition
-            || ($admitted['context']->mode === OwnershipContextMode::Disabled
-                ? $admitted['context'] != $this->context->snapshot()
-                : $admitted['context'] !== $this->context->snapshot())
-            || $admitted['connection'] !== $owner->getConnection()
-            || $admitted['table'] !== $owner->getTable()
-            || $admitted['key'] !== $owner->getRawOriginal($definition->ownerKey)
-            || $owner->isDirty([$owner->getKeyName(), $definition->ownerKey])) {
-            return null;
-        }
-
-        return [$definition->foreignKey($owner->getTable()) => $admitted['key']];
     }
 
     /** @return array<string, int|string|null> */

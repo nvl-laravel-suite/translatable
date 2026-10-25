@@ -131,9 +131,6 @@ final readonly class RelatedTranslationStore
      */
     public function ownerIdentity(Model $owner, RelatedTranslationDefinition $definition): array
     {
-        if (($admitted = $this->ownership->admittedOwnerIdentity($owner, $definition)) !== null) {
-            return $admitted;
-        }
         $attributes = $this->ownership->childAttributes($owner, $definition);
         $key = $owner->getAttribute($definition->ownerKey);
         if ($attributes !== []) {
@@ -171,9 +168,7 @@ final readonly class RelatedTranslationStore
         if ($canonical->getConnectionName() === null) {
             $canonical->setConnection($owner->getConnectionName());
         }
-        if ($this->ownership->admittedOwnerIdentity($owner, $definition) === null) {
-            $this->scopeQuery($canonical->newQuery(), $owner, $definition);
-        }
+        $this->scopeQuery($canonical->newQuery(), $owner, $definition);
         foreach ($rows as $row) {
             if ($row::class !== $canonical::class || $row->getTable() !== $canonical->getTable()
                 || $row->getConnection() !== $canonical->getConnection()) {

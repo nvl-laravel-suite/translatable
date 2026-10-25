@@ -19,10 +19,6 @@
                 "limits.mutation_fields",
                 "limits.mutation_locales",
                 "limits.mutation_value_bytes",
-                "middleware.cookie_minutes",
-                "middleware.cookie_name",
-                "middleware.query_parameter",
-                "middleware.session_key",
                 "transactions.attempts"
             ]
         }

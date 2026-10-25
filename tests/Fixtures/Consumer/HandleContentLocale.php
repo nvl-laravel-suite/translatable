@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Nvl\Translatable\Middleware;
+namespace Nvl\Translatable\Tests\Fixtures\Consumer;
 
 use Closure;
 use Illuminate\Contracts\Config\Repository;
@@ -15,7 +15,7 @@ use Nvl\Translatable\Services\ContentLocale;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Resolves and persists a request's content locale through configurable preference sources.
+ * Example consumer-owned HTTP adapter for the package's request-scoped locale service.
  */
 final readonly class HandleContentLocale
 {
@@ -37,7 +37,7 @@ final readonly class HandleContentLocale
     public function handle(Request $request, Closure $next): Response
     {
         $queryParameter = $this->nullableStringConfig(
-            'translatable.middleware.query_parameter',
+            'consumer.content_locale.query_parameter',
             'content_lang',
         );
 
@@ -60,7 +60,7 @@ final readonly class HandleContentLocale
         }
 
         $sessionKey = $this->nullableStringConfig(
-            'translatable.middleware.session_key',
+            'consumer.content_locale.session_key',
             'content_locale',
         );
 
@@ -75,7 +75,7 @@ final readonly class HandleContentLocale
         }
 
         $cookieName = $this->nullableStringConfig(
-            'translatable.middleware.cookie_name',
+            'consumer.content_locale.cookie_name',
             'content_locale',
         );
 
@@ -101,7 +101,7 @@ final readonly class HandleContentLocale
         $this->contentLocale->set($normalizedLocale);
 
         $sessionKey = $this->nullableStringConfig(
-            'translatable.middleware.session_key',
+            'consumer.content_locale.session_key',
             'content_locale',
         );
 
@@ -110,7 +110,7 @@ final readonly class HandleContentLocale
         }
 
         $cookieName = $this->nullableStringConfig(
-            'translatable.middleware.cookie_name',
+            'consumer.content_locale.cookie_name',
             'content_locale',
         );
 
@@ -119,7 +119,7 @@ final readonly class HandleContentLocale
                 $cookieName,
                 $normalizedLocale,
                 $this->positiveIntegerConfig(
-                    'translatable.middleware.cookie_minutes',
+                    'consumer.content_locale.cookie_minutes',
                     525_600,
                 ),
             );

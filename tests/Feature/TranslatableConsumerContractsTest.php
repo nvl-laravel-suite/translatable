@@ -500,8 +500,6 @@ test('doctor reports malformed global configuration without throwing', function 
         ['nvl-translatable.fallback.policy' => 'random'],
         ['nvl-translatable.fallback.on_null' => 'yes'],
         ['nvl-translatable.limits.mutation_fields' => 0],
-        ['nvl-translatable.middleware.query_parameter' => ''],
-        ['nvl-translatable.middleware.cookie_minutes' => 0],
     ];
 
     foreach ($invalidConfigurations as $configuration) {
