@@ -104,7 +104,7 @@ Queries are bounded by the resource's allowed columns, stable order, and maximum
 
 ## Consumer HTTP locale adapter
 
-The host chooses how query, stored preference, session, and cookie values select a request locale. A complete consumer-owned middleware example and its precedence/restoration tests live in [tests/Fixtures/Consumer/HandleContentLocale.php](tests/Fixtures/Consumer/HandleContentLocale.php) and [HandleContentLocaleMiddlewareTest.php](tests/Feature/HandleContentLocaleMiddlewareTest.php). Copy or adapt it into the application's HTTP layer and keep its `consumer.content_locale.*` settings in the application. Translatable publishes no middleware class or HTTP settings and has no direct Symfony HTTP requirement.
+The host chooses how query, stored preference, session, and cookie values select a request locale. A complete consumer-owned middleware example and its precedence/restoration tests live in `tests/Fixtures/Consumer/HandleContentLocale.php` in the source checkout and `tests/Feature/HandleContentLocaleMiddlewareTest.php` in the source checkout. Copy or adapt it into the application's HTTP layer and keep its `consumer.content_locale.*` settings in the application. Translatable publishes no middleware class or HTTP settings and has no direct Symfony HTTP requirement.
 
 ## Locale and diagnostics
 
