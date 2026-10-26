@@ -61,7 +61,7 @@ final class GatherTranslationResourcesCommand extends Command
                 'pagination' => [
                     'currentPage' => $paginator->currentPage(),
                     'lastPage' => $paginator->lastPage(),
-                    'perPage' => $paginator->perPage(),
+                    'per_page' => $paginator->perPage(),
                     'total' => $paginator->total(),
                 ],
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));

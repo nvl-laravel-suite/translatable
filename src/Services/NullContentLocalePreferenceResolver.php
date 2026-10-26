@@ -8,6 +8,8 @@ use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
 
 /**
  * Provides the default no-op application preference integration.
+ *
+ * @internal
  */
 final class NullContentLocalePreferenceResolver implements ContentLocalePreferenceResolver
 {

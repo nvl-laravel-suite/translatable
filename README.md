@@ -1,6 +1,6 @@
 # NVL Translatable
 
-Typed locale storage for Laravel 13 Eloquent models. The package supports a related translation table and grouped rows in the model's own table. It requires PHP 8.4 and nvl/core 6.x. nvl/ownership 6.x is optional for applications that declare protected resources.
+Typed locale storage for Laravel 13 Eloquent models. The package supports a related translation table and grouped rows in the model's own table. It requires PHP 8.4 and nvl/core 7.x. nvl/ownership 7.x is optional for applications that declare protected resources.
 
 ## Declare storage
 

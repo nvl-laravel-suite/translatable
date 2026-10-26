@@ -14,6 +14,8 @@ use Nvl\Translatable\TranslationResourceDefinition;
 
 /**
  * Enforces resource-level and application-level authorization.
+ *
+ * @internal
  */
 final readonly class TranslationResourceAuthorization
 {

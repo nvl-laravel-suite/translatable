@@ -27,6 +27,8 @@ use Throwable;
 
 /**
  * Audits global configuration and registered model schemas against translation declarations.
+ *
+ * @internal
  */
 final readonly class TranslationDoctor
 {

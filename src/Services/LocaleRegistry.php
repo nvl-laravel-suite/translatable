@@ -12,6 +12,8 @@ use Nvl\Translatable\Support\LocaleCode;
 
 /**
  * Owns the configured supported locales and deterministic fallback order.
+ *
+ * @api
  */
 final readonly class LocaleRegistry
 {

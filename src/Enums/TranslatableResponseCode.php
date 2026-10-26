@@ -6,7 +6,9 @@ namespace Nvl\Translatable\Enums;
 
 use Nvl\Support\Contracts\ResponseCode;
 
-/** Stable public response discriminators for Translatable.
+/**
+ * Stable public response discriminators for Translatable.
+ *
  * @api
  */
 enum TranslatableResponseCode: string implements ResponseCode

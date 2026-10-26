@@ -30,6 +30,8 @@ use WeakMap;
 
 /**
  * Locates and preloads logical translatable resources across both storage strategies.
+ *
+ * @internal
  */
 final readonly class TranslationResourceLocator
 {

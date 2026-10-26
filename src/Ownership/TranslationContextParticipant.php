@@ -10,7 +10,11 @@ use Nvl\Support\Ownership\Contracts\OwnershipContextParticipant;
 use Nvl\Support\Ownership\ValueObjects\OwnershipSnapshot;
 use Nvl\Translatable\Services\ContentLocale;
 
-/** Restores explicit request locale state without changing the user's choice at scope entry. @internal */
+/**
+ * Restores explicit request locale state without changing the user's choice at scope entry.
+ *
+ * @internal
+ */
 final readonly class TranslationContextParticipant implements OwnershipContextParticipant
 {
     /** Preserve exact presence as well as values across nested owner callbacks. */

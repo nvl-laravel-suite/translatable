@@ -11,6 +11,8 @@ use Nvl\Translatable\TranslationDefinition;
 
 /**
  * Enforces globally bounded translation mutation payloads.
+ *
+ * @api
  */
 final readonly class TranslationPayloadValidator
 {

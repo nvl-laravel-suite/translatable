@@ -36,6 +36,8 @@ use UnitEnum;
  *
  * @phpstan-type ResourceSummary array{key: string, label: string, model: class-string<Model>, fields: list<string>, total: int}
  * @phpstan-type ResourceRecord array{resource: string, id: int|string, label: string, attributes: array<string, mixed>, translations: array<string, array<string, mixed>>, translatedLocales: list<string>, missingLocales: list<string>, version: string}
+ *
+ * @api
  */
 final readonly class TranslationResourceGatherer
 {

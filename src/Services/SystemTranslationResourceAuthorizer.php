@@ -13,6 +13,8 @@ use Nvl\Translatable\TranslationResourceDefinition;
 
 /**
  * Secure default for applications without an explicit resource authorizer.
+ *
+ * @internal
  */
 final class SystemTranslationResourceAuthorizer implements TranslationResourceAuthorizer
 {

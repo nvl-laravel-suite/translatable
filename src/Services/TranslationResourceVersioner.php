@@ -20,6 +20,8 @@ use UnitEnum;
 
 /**
  * Calculates deterministic optimistic-concurrency tokens.
+ *
+ * @api
  */
 final class TranslationResourceVersioner
 {

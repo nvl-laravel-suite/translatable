@@ -486,6 +486,82 @@
                 "EXPLICIT_CONTEXT_KEY"
             ]
         },
+        "Nvl\\Translatable\\Services\\LocaleRegistry": {
+            "kind": "class",
+            "file": "src/Services/LocaleRegistry.php",
+            "methods": [
+                "__construct",
+                "assertSupported",
+                "chain",
+                "default",
+                "fallbacks",
+                "supported",
+                "supports"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\RelatedTranslationStore": {
+            "kind": "class",
+            "file": "src/Services/RelatedTranslationStore.php",
+            "methods": [
+                "__construct",
+                "assertRows",
+                "delete",
+                "deleteExcept",
+                "eagerOwnerIdentities",
+                "ownerIdentity",
+                "rows",
+                "scopeQuery",
+                "upsert"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\SelfTranslationStore": {
+            "kind": "class",
+            "file": "src/Services/SelfTranslationStore.php",
+            "methods": [
+                "__construct",
+                "delete",
+                "deleteExcept",
+                "rows",
+                "upsert"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\TranslationPayloadValidator": {
+            "kind": "class",
+            "file": "src/Services/TranslationPayloadValidator.php",
+            "methods": [
+                "__construct",
+                "validate"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\TranslationResolver": {
+            "kind": "class",
+            "file": "src/Services/TranslationResolver.php",
+            "methods": [
+                "resolve"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\TranslationResourceGatherer": {
+            "kind": "class",
+            "file": "src/Services/TranslationResourceGatherer.php",
+            "methods": [
+                "__construct",
+                "find",
+                "gather",
+                "summaries"
+            ],
+            "properties": [],
+            "constants": []
+        },
         "Nvl\\Translatable\\Services\\TranslationResourceRegistry": {
             "kind": "class",
             "file": "src/Services/TranslationResourceRegistry.php",
@@ -498,6 +574,17 @@
                 "has",
                 "keys",
                 "register"
+            ],
+            "properties": [],
+            "constants": []
+        },
+        "Nvl\\Translatable\\Services\\TranslationResourceVersioner": {
+            "kind": "class",
+            "file": "src/Services/TranslationResourceVersioner.php",
+            "methods": [
+                "__construct",
+                "emptySelfGroupVersion",
+                "version"
             ],
             "properties": [],
             "constants": []

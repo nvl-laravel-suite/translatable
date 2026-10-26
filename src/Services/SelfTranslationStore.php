@@ -15,6 +15,8 @@ use Nvl\Translatable\SelfTranslationDefinition;
 
 /**
  * Persists and retrieves locale rows grouped in a resource table itself.
+ *
+ * @api
  */
 final readonly class SelfTranslationStore
 {

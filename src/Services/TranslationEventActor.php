@@ -9,7 +9,11 @@ use Illuminate\Database\Eloquent\Model;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 
-/** Extracts bounded attribution facts from an actor admitted by a resource policy. */
+/**
+ * Extracts bounded attribution facts from an actor admitted by a resource policy.
+ *
+ * @internal
+ */
 final class TranslationEventActor
 {
     /** @return array{type: string, id: int|string} */

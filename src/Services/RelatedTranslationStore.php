@@ -18,6 +18,8 @@ use Nvl\Translatable\RelatedTranslationDefinition;
 
 /**
  * Persists and retrieves translation rows related to a canonical owner model.
+ *
+ * @api
  */
 final readonly class RelatedTranslationStore
 {

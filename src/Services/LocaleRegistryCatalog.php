@@ -7,7 +7,11 @@ namespace Nvl\Translatable\Services;
 use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Translatable\Support\LocaleCode;
 
-/** Adapts the validated Translatable catalog to the shared Core locale contract. */
+/**
+ * Adapts the validated Translatable catalog to the shared Core locale contract.
+ *
+ * @internal
+ */
 final readonly class LocaleRegistryCatalog implements LocaleCatalog
 {
     /** Create the adapter over the existing locale registry. */

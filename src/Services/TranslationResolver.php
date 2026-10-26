@@ -11,6 +11,8 @@ use Nvl\Translatable\TranslationResolution;
 
 /**
  * Resolves translated values from an already-selected collection of translation rows.
+ *
+ * @api
  */
 final class TranslationResolver
 {
