@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Nvl\Translatable\Services;
 
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\Eloquent\Model;
+use Nvl\Support\Auth\CanonicalActorResolver;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
@@ -24,6 +26,7 @@ final readonly class TranslationResourceAuthorization
      */
     public function __construct(
         private TranslationResourceAuthorizer $authorizer,
+        private CanonicalActorResolver $actors,
     ) {}
 
     /**
@@ -35,9 +38,12 @@ final readonly class TranslationResourceAuthorization
         TranslationResourceDefinition $resource,
         ?Model $record = null,
     ): void {
-        if ($actor instanceof Authenticatable
-            && ($actor->getAuthIdentifier() === null || ($actor instanceof Model && ! $actor->exists))) {
-            throw TranslationResourceException::unauthorized($resource->key, $ability->value);
+        if ($actor instanceof Authenticatable) {
+            try {
+                $actor = $this->actors->resolve($actor);
+            } catch (AuthorizationException) {
+                throw TranslationResourceException::unauthorized($resource->key, $ability->value);
+            }
         }
 
         $resourceDecision = $resource->authorize($actor, $ability, $record);

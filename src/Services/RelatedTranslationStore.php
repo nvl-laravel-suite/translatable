@@ -126,6 +126,52 @@ final readonly class RelatedTranslationStore
         return $owner->translations()->get();
     }
 
+    /** Return freshly admitted related rows in owner input order, batching schema and owner checks.
+     *
+     * @param  array<array-key, mixed>  $owners  A list of at most 1,000 translatable owner models, validated before reading.
+     * @return list<Collection<int, Model>>
+     */
+    public function rowsForOwners(array $owners): array
+    {
+        if (! array_is_list($owners) || count($owners) > 1000) {
+            throw new TranslatableException('Related translation reads require a list of at most 1,000 owners.');
+        }
+        /** @var array<string, non-empty-list<array{index: int, owner: Model&TranslatableModel}>> $groups */
+        $groups = [];
+        foreach ($owners as $index => $owner) {
+            if (! $owner instanceof Model || ! $owner instanceof TranslatableModel) {
+                throw new TranslatableException('Related translation reads require translatable owner models.');
+            }
+            $group = hash('sha256', serialize([$owner::class, $owner->getTable(), spl_object_id($owner->getConnection()), $owner->translationDefinition()]));
+            $groups[$group][] = ['index' => $index, 'owner' => $owner];
+        }
+        $result = [];
+        foreach ($groups as $entries) {
+            $models = array_column($entries, 'owner');
+            (new Collection($models))->loadMissing('translations');
+            $owner = $models[0];
+            $definition = $owner->translationDefinition();
+            $canonical = $this->translationModel($owner, $definition);
+            $identities = $this->eagerOwnerIdentities($models, $definition);
+            if ($definition->ownershipResource === null) {
+                $this->ownership->assertUnownedModels([$canonical]);
+            } else {
+                $this->scopeQuery($canonical->newQuery(), $owner, $definition);
+            }
+            foreach ($entries as $offset => $entry) {
+                $rows = $entry['owner']->getRelation('translations');
+                if (! $rows instanceof Collection) {
+                    throw new TranslatableException('Related translations require their native model collection.');
+                }
+                $this->assertRelatedRows($canonical, $rows, $identities[$offset]);
+                $result[$entry['index']] = $rows;
+            }
+        }
+        ksort($result);
+
+        return array_values($result);
+    }
+
     /**
      * Admit canonical owner identity once for a related-row read operation.
      *
@@ -165,23 +211,18 @@ final readonly class RelatedTranslationStore
      */
     public function assertRows(Model $owner, RelatedTranslationDefinition $definition, Collection $rows): void
     {
-        $identity = $this->ownerIdentity($owner, $definition);
-        $canonical = new $definition->translationModel;
-        if ($canonical->getConnectionName() === null) {
-            $canonical->setConnection($owner->getConnectionName());
-        }
-        $this->scopeQuery($canonical->newQuery(), $owner, $definition);
-        foreach ($rows as $row) {
-            if ($row::class !== $canonical::class || $row->getTable() !== $canonical->getTable()
-                || $row->getConnection() !== $canonical->getConnection()) {
-                throw $this->ownership->violation('Loaded translations do not use canonical related storage.');
+        $canonical = $this->translationModel($owner, $definition);
+        if ($definition->ownershipResource === null) {
+            $this->ownership->assertUnownedModels([$owner, $canonical]);
+            if ($owner->isDirty([$owner->getKeyName(), $definition->ownerKey])) {
+                throw $this->ownership->violation('Loaded translation owner identity cannot be changed in memory.');
             }
-            foreach ($identity as $column => $value) {
-                if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
-                    throw $this->ownership->violation('Loaded translations do not belong to the canonical owner.');
-                }
-            }
+            $identity = [$definition->foreignKey($owner->getTable()) => $owner->getAttribute($definition->ownerKey)];
+        } else {
+            $identity = $this->ownerIdentity($owner, $definition);
+            $this->scopeQuery($canonical->newQuery(), $owner, $definition);
         }
+        $this->assertRelatedRows($canonical, $rows, $identity);
     }
 
     /**
@@ -226,6 +267,40 @@ final readonly class RelatedTranslationStore
         $query->whereExists($owners->toBase());
 
         return $query;
+    }
+
+    /** Require the actual parent and canonical related model to share their source connection. */
+    private function translationModel(Model $owner, RelatedTranslationDefinition $definition): Model
+    {
+        $canonical = new $definition->translationModel;
+        if ($canonical->getConnectionName() === null) {
+            $canonical->setConnection($owner->getConnectionName());
+        }
+        if ($canonical->getConnection() !== $owner->getConnection()) {
+            throw $this->ownership->violation('Translation relations require the same actual source connection.');
+        }
+
+        return $canonical;
+    }
+
+    /** Validate loaded row identity without triggering model relationship property reads.
+     *
+     * @param  Collection<int, Model>  $rows
+     * @param  array<string, mixed>  $identity
+     */
+    private function assertRelatedRows(Model $canonical, Collection $rows, array $identity): void
+    {
+        foreach ($rows as $row) {
+            if ($row::class !== $canonical::class || $row->getTable() !== $canonical->getTable()
+                || $row->getConnection() !== $canonical->getConnection()) {
+                throw $this->ownership->violation('Loaded translations do not use canonical related storage.');
+            }
+            foreach ($identity as $column => $value) {
+                if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
+                    throw $this->ownership->violation('Loaded translations do not belong to the canonical owner.');
+                }
+            }
+        }
     }
 
     /**

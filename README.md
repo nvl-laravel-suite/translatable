@@ -1,6 +1,8 @@
 # NVL Translatable
 
 Typed locale storage for Laravel 13 Eloquent models. The package supports a related translation table and grouped rows in the model's own table. It requires PHP 8.4 and nvl/core 7.x. nvl/ownership 7.x is optional for applications that declare protected resources.
+Eloquent actors are reloaded from their class-defined canonical storage before resource-level and host translation policies inspect them. Dirty keys, altered storage, detached actors and unavailable rows reject; caller attributes and loaded relations do not carry policy privileges. Non-Eloquent Authenticatable providers retain their own freshness and identity contracts, while the host policy still decides access. Explicit system actors remain subject to that policy.
+
 
 ## Declare storage
 
@@ -41,6 +43,8 @@ A grouped-row model implements SelfTranslatableModel and uses SelfTranslatable:
     }
 
 Give related rows a foreign key and unique (foreign key, locale) index. Give grouped rows a stable group key, locale column, and unique logical group/locale index. When Ownership protects a resource, use its declared scope columns and adoption requirements too. getAllTranslations(), getAvailableLocales(), translated(), resolveTranslation(), and the model's locale/query scopes are available for reads. Attribute casts can stage fields for a host's authorized persistence workflow; they do not grant translation-management authority.
+
+For a collection projection, use `RelatedTranslationStore::rowsForOwners($owners)` with a list of at most 1,000 related-table owner models. It loads missing relations in concrete storage groups and returns native translation collections in input order. Canonical owner identity, every loaded child, actual connection and current Ownership admission are validated together. Already loaded unowned batches use two fresh metadata probes per storage group for either one or 25 owners. Individual loaded model reads use one fresh probe instead of three; they deliberately recheck admission on every access. No authorization or schema result is cached across operations, so later adoption and scope changes still deny retained models.
 
 ## Register resources and host policy
 

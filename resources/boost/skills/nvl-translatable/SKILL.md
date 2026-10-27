@@ -27,6 +27,8 @@ Use translated() for a value and resolveTranslation() for its provenance. Preser
 
 Use getAllTranslations(), getAvailableLocales(), locale(), withResolvedTranslations(), and declared translated-field scopes. Apply model visibility and owner constraints before locale selection. Batch preloading should remain bounded as page size grows; do not admit a row from a different owner or resource query scope.
 
+For related-row collection projections, call `RelatedTranslationStore::rowsForOwners($owners)` with a list of at most 1,000 models and consume its native collections in input order. It batches fresh storage and canonical owner checks by actual storage group, validates loaded children, and loads missing relations. Individual model reads continue to recheck current admission; never add a consumer authorization/schema cache or bypass guarded relations to reduce queries.
+
 TranslationResourceGatherer::summaries(), gather(), and find() return native arrays or a paginator of arrays. They take an actual Illuminate\Contracts\Auth\Authenticatable or Nvl\Support\Enums\SystemActor. Gather accepts only search, missing_locale, page, and per_page query keys. The host validates its HTTP query and formats its own DTOs.
 
 ## Mutate through the complete service

@@ -512,6 +512,7 @@
                 "eagerOwnerIdentities",
                 "ownerIdentity",
                 "rows",
+                "rowsForOwners",
                 "scopeQuery",
                 "upsert"
             ],

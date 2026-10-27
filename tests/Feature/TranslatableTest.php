@@ -10,6 +10,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Support\Enums\SystemActor;
+use Nvl\Support\Ownership\Exceptions\OwnershipSchemaNotReady;
+use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
+use Nvl\Support\Ownership\Services\OwnershipStorageTables;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationSyncMode;
@@ -18,6 +21,7 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
+use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
@@ -328,6 +332,54 @@ test('it eager loads translated rows in bounded queries while freshly admitting 
         ->and($populated['translation_reads'])->toBe($single['translation_reads'])
         ->and($populated['admission_probes'])->toBeGreaterThanOrEqual(25)
         ->and($populated['total'] - $single['total'])->toBeLessThanOrEqual(24 * 3);
+});
+
+test('it admits loaded related storage once per read and freshly rejects later adoption', function (): void {
+    $model = TestTranslatableModel::create(['slug' => 'read-admission']);
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'Name']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $model->load('translations');
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+    expect($model->translations->sole()->name)->toBe('Name');
+    $probes = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => str_contains($query, 'sqlite_master'));
+    DB::disableQueryLog();
+    expect($probes)->toHaveCount(1);
+
+    Schema::create(OwnershipStorageTables::Markers, static function (Blueprint $table): void {
+        $table->string('resource');
+        $table->string('physical_table');
+    });
+    DB::table(OwnershipStorageTables::Markers)->insert(['resource' => 'tests.claimed', 'physical_table' => $model->getTable()]);
+    expect(fn () => $model->translations)->toThrow(OwnershipSchemaNotReady::class);
+});
+
+test('it validates loaded translation batches with constant fresh storage probes', function (): void {
+    $writer = app(TranslationWriter::class);
+    foreach (range(1, 25) as $index) {
+        $model = TestTranslatableModel::create(['slug' => 'batch-'.$index]);
+        $writer->sync($model, ['en' => ['name' => 'Name '.$index]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    }
+    $models = TestTranslatableModel::with('translations')->orderBy('id')->get()->all();
+    $store = app(RelatedTranslationStore::class);
+    $measure = static function (array $owners) use ($store): array {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $result = $store->rowsForOwners($owners);
+        $queries = DB::getQueryLog();
+        DB::disableQueryLog();
+
+        return [$result, count($queries)];
+    };
+    [$single, $singleQueries] = $measure([$models[0]]);
+    [$batch, $batchQueries] = $measure($models);
+    expect($single[0]->sole()->name)->toBe('Name 1')
+        ->and($batch)->toHaveCount(25)
+        ->and($batch[24]->sole()->name)->toBe('Name 25')
+        ->and($batchQueries)->toBe($singleQueries)->toBeLessThanOrEqual(2);
+
+    $models[0]->setRelation('translations', $models[1]->getRelation('translations'));
+    expect(fn () => $store->rowsForOwners($models))->toThrow(OwnershipViolation::class)
+        ->and($store->rowsForOwners([]))->toBe([]);
 });
 
 test('it resolves progressively less-specific locale parents', function (): void {

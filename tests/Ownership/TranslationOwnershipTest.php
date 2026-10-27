@@ -44,6 +44,30 @@ it('keeps related translations in their persisted native owner partition', funct
     }
 });
 
+it('revalidates batch rows and canonical owners after leaving their admitted scope', function (): void {
+    $runner = app(OwnershipRunner::class);
+    $actor = OwnershipActor::query()->firstOrFail();
+    $records = $runner->run(OwnershipCompany::query()->findOrFail(7), $actor, function (): array {
+        $records = [];
+        foreach ([70, 71] as $id) {
+            $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $assignment): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$assignment->attributes(), 'id' => $id]));
+            $record = app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Record '.$id]], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
+            $record->load('translations');
+            $records[] = $record;
+        }
+        $store = app(RelatedTranslationStore::class);
+        expect($store->rowsForOwners($records)[0]->sole()->getAttribute('name'))->toBe('Record 70');
+        $forged = clone $records[0];
+        $forged->setRelation('translations', $records[1]->getRelation('translations'));
+        expect(fn () => $store->rowsForOwners([$forged]))->toThrow(OwnershipViolation::class);
+
+        return $records;
+    });
+    $runner->run(OwnershipCompany::query()->findOrFail(8), $actor, function () use ($records): void {
+        expect(fn () => app(RelatedTranslationStore::class)->rowsForOwners($records))->toThrow(OwnershipViolation::class);
+    });
+});
+
 it('allows the same self group and locale under different primary owners', function (): void {
     $runner = app(OwnershipRunner::class);
     $actor = OwnershipActor::query()->firstOrFail();

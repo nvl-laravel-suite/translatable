@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Nvl\Translatable\Services;
 
 use Closure;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -300,11 +301,30 @@ final readonly class TranslationOwnership
     /** Preserve unowned models without interpreting claimed physical storage as global. */
     private function assertUnowned(Model $model): void
     {
-        if ($model instanceof Ownable && $model::ownershipDefinition()->strategy !== 'unscoped') {
-            throw new OwnershipConfigurationInvalid('Declare the translation resource for an owned model.');
+        $this->assertUnownedModels([$model]);
+    }
+
+    /** Admit all actual unowned tables together without retaining an authorization or schema cache.
+     *
+     * @param  list<Model>  $models
+     */
+    public function assertUnownedModels(array $models): void
+    {
+        /** @var array<int, array{connection: Connection, tables: list<string>}> $groups */
+        $groups = [];
+        foreach ($models as $model) {
+            if ($model instanceof Ownable && $model::ownershipDefinition()->strategy !== 'unscoped') {
+                throw new OwnershipConfigurationInvalid('Declare the translation resource for an owned model.');
+            }
+            $this->resources->assertUnclaimed($model);
+            $connection = $model->getConnection();
+            $key = spl_object_id($connection);
+            $groups[$key] ??= ['connection' => $connection, 'tables' => []];
+            $groups[$key]['tables'][] = $model->getTable();
         }
-        $this->resources->assertUnclaimed($model);
-        $this->storage->assertUnadopted($model->getConnection(), physicalTable: $model->getTable());
+        foreach ($groups as $group) {
+            $this->storage->assertUnadoptedTables($group['connection'], $group['tables']);
+        }
     }
 
     /** Select one authority without retaining any actor or owner model. */
