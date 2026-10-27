@@ -298,6 +298,8 @@ test('it eager loads translated rows in bounded queries while freshly admitting 
     $measure = static function (): array {
         $owner = new TestTranslatableModel;
         app(TranslationOwnership::class)->assertOwner($owner, $owner->translationDefinition());
+        $catalog = DB::getDriverName() === 'sqlite' ? 'sqlite_master' : 'information_schema.tables';
+        $translationTable = DB::connection()->getQueryGrammar()->wrapTable('test_translatable_models_i18n');
         DB::flushQueryLog();
         DB::enableQueryLog();
 
@@ -310,9 +312,9 @@ test('it eager loads translated rows in bounded queries while freshly admitting 
 
         return [
             'total' => count($queries),
-            'translation_reads' => count(array_filter($queries, static fn (string $query): bool => str_starts_with($query, 'select') && str_contains($query, '"test_translatable_models_i18n"')
-                && ! str_contains($query, 'sqlite_master'))),
-            'admission_probes' => count(array_filter($queries, static fn (string $query): bool => str_contains($query, 'sqlite_master'))),
+            'translation_reads' => count(array_filter($queries, static fn (string $query): bool => str_starts_with($query, 'select') && str_contains($query, $translationTable)
+                && ! str_contains($query, $catalog))),
+            'admission_probes' => count(array_filter($queries, static fn (string $query): bool => str_contains($query, $catalog))),
             'names' => $names->all(),
         ];
     };
@@ -341,7 +343,8 @@ test('it admits loaded related storage once per read and freshly rejects later a
     DB::flushQueryLog();
     DB::enableQueryLog();
     expect($model->translations->sole()->name)->toBe('Name');
-    $probes = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => str_contains($query, 'sqlite_master'));
+    $catalog = DB::getDriverName() === 'sqlite' ? 'sqlite_master' : 'information_schema.tables';
+    $probes = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => str_contains($query, $catalog));
     DB::disableQueryLog();
     expect($probes)->toHaveCount(1);
 
@@ -349,8 +352,12 @@ test('it admits loaded related storage once per read and freshly rejects later a
         $table->string('resource');
         $table->string('physical_table');
     });
-    DB::table(OwnershipStorageTables::Markers)->insert(['resource' => 'tests.claimed', 'physical_table' => $model->getTable()]);
-    expect(fn () => $model->translations)->toThrow(OwnershipSchemaNotReady::class);
+    try {
+        DB::table(OwnershipStorageTables::Markers)->insert(['resource' => 'tests.claimed', 'physical_table' => $model->getTable()]);
+        expect(fn () => $model->translations)->toThrow(OwnershipSchemaNotReady::class);
+    } finally {
+        Schema::dropIfExists(OwnershipStorageTables::Markers);
+    }
 });
 
 test('it validates loaded translation batches with constant fresh storage probes', function (): void {

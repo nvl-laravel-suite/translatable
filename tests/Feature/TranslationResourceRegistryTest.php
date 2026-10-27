@@ -462,8 +462,12 @@ test('central events carry scalar actor facts after outer commit and discard rol
         TranslationResourceLocaleDeleted::class,
         TranslationResourcesGathered::class,
     ]);
+    Schema::create('users', function (Blueprint $table): void {
+        $table->id();
+        $table->string('slug');
+        $table->timestamps();
+    });
     $actor = new User;
-    $actor->setTable('test_translatable_models');
     $actor->setAttribute('slug', 'actor');
     $actor->save();
     $actor->setAttribute('private_payload', 'do-not-serialize');
