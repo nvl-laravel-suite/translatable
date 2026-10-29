@@ -34,6 +34,7 @@ use Nvl\Translatable\Tests\Support\ConfiguredTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestConnectedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestDomainManagedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestMismatchedConnectionModel;
+use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 use Nvl\Translatable\TranslationResourceDefinition;
 
@@ -80,6 +81,61 @@ test('it exposes one registry for every resource registered in the isolated appl
 
     expect($keys)->toContain('tests.models');
 });
+
+test('resource admission reads current visibility from the writer rather than a stale replica', function (string $storage, string $operation): void {
+    $connection = DB::connection();
+    if ($connection->getDriverName() !== 'sqlite') {
+        $this->markTestSkipped('This fixture exercises separate in-memory SQLite read and write connections.');
+    }
+    if ($storage === 'related') {
+        $owner = TestTranslatableModel::create(['slug' => 'visible']);
+        $owner->translations()->create(['locale' => 'en', 'name' => 'Private copy']);
+        $tables = ['test_translatable_models', 'test_translatable_models_i18n'];
+        $column = 'slug';
+    } else {
+        Schema::create('test_self_translatable_models', function (Blueprint $table): void {
+            $table->id();
+            $table->string('entry_key');
+            $table->string('locale');
+            $table->string('name')->nullable();
+            $table->string('description')->nullable();
+            $table->string('type')->nullable();
+            $table->unique(['entry_key', 'locale']);
+        });
+        $owner = TestSelfTranslatableModel::create(['entry_key' => 'replica', 'locale' => 'en', 'name' => 'Private copy', 'type' => 'visible']);
+        $tables = ['test_self_translatable_models'];
+        $column = 'type';
+    }
+    app(TranslationResourceRegistry::class)->register('tests.replica', $owner::class, 'Replica test',
+        queryScope: static fn (Builder $query): Builder => $query->where($column, 'visible'));
+    $primary = $connection->getPdo();
+    $replica = new PDO('sqlite::memory:');
+    foreach ($tables as $table) {
+        $statement = $primary->prepare('SELECT sql FROM sqlite_master WHERE type = ? AND name = ?');
+        $statement->execute(['table', $table]);
+        $replica->exec($statement->fetchColumn());
+        $quotedTable = $connection->getQueryGrammar()->wrapTable($table);
+        foreach ($primary->query('SELECT * FROM '.$quotedTable)->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $columns = array_map($connection->getQueryGrammar()->wrap(...), array_keys($row));
+            $replica->prepare('INSERT INTO '.$quotedTable.' ('.implode(', ', $columns).') VALUES ('.implode(', ', array_fill(0, count($row), '?')).')')->execute(array_values($row));
+        }
+    }
+    $owner->forceFill([$column => 'hidden'])->save();
+    $connection->setReadPdo($replica);
+    try {
+        $gatherer = app(TranslationResourceGatherer::class);
+        if ($operation === 'find') {
+            expect(fn () => $gatherer->find('tests.replica', $owner->translationResourceKey(), SystemActor::Background))->toThrow(ModelNotFoundException::class);
+        } elseif ($operation === 'gather') {
+            expect($gatherer->gather('tests.replica', SystemActor::Background)->total())->toBe(0);
+        } else {
+            $summary = collect($gatherer->summaries(SystemActor::Background))->firstWhere('key', 'tests.replica');
+            expect($summary['total'])->toBe(0);
+        }
+    } finally {
+        $connection->setReadPdo(null);
+    }
+})->with(['related', 'self'])->with(['find', 'gather', 'summary']);
 
 test('native writer patches a registered owner and enforces expected revisions', function (): void {
     $owner = TestTranslatableModel::create(['slug' => 'native-writer']);

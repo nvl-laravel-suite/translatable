@@ -31,6 +31,8 @@ For related-row collection projections, call `RelatedTranslationStore::rowsForOw
 
 TranslationResourceGatherer::summaries(), gather(), and find() return native arrays or a paginator of arrays. They take an actual Illuminate\Contracts\Auth\Authenticatable or Nvl\Support\Enums\SystemActor. Gather accepts only search, missing_locale, page, and per_page query keys. The host validates its HTTP query and formats its own DTOs.
 
+Registered resource visibility, canonical owner admission and translation preloads use writer connections. Preserve this when extending resource queries so a lagging read replica cannot expose revoked resources.
+
 ## Mutate through the complete service
 
 Bind TranslationResourceAuthorizer in the host. Its default implementation denies access. Persist ordinary actors before writing; authorize SystemActor values explicitly. Derive both from trusted server state.

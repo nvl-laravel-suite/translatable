@@ -230,12 +230,12 @@ final readonly class TranslationResourceLocator
                 $translation->setConnection($record->getConnectionName());
             }
             $query = $this->relatedTranslations->scopeQuery(
-                $translation->newQuery(),
+                $translation->newQuery()->useWritePdo(),
                 $identities[0]['canonical'],
                 $definition,
             );
         } else {
-            $query = $this->ownership->query($record->newQuery(), $definition);
+            $query = $this->ownership->query($record->newQuery()->useWritePdo(), $definition);
         }
         $query->where(function (Builder $nested) use ($identities, $partitionColumns, $rowLogicalColumn): void {
             foreach ($identities as $identity) {
@@ -341,7 +341,7 @@ final readonly class TranslationResourceLocator
             $this->ownership,
         );
 
-        return $this->ownership->query($guarded, $definition);
+        return $this->ownership->query($guarded->useWritePdo(), $definition);
     }
 
     /** Determine whether two batch models use the same canonical storage. */
@@ -415,7 +415,7 @@ final readonly class TranslationResourceLocator
             $suppliedByKey[$encodedKey] = $model;
             $keys[] = $key;
         }
-        $canonicalQuery = $record->newQuery();
+        $canonicalQuery = $record->newQuery()->useWritePdo();
         if ($record instanceof SelfTranslatableModel) {
             $canonicalQuery->withoutGlobalScope(SoftDeletingScope::class);
         }

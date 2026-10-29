@@ -1,6 +1,8 @@
 # NVL Translatable
 
 Typed locale storage for Laravel 13 Eloquent models. The package supports a related translation table and grouped rows in the model's own table. It requires PHP 8.4 and nvl/core 7.x. nvl/ownership 7.x is optional for applications that declare protected resources.
+
+Registered resource reads use the writer connection for visibility, canonical owner admission and translation preloads. A lagging read replica cannot expose a resource whose visibility has been revoked on the writer.
 Eloquent actors are reloaded from their class-defined canonical storage before resource-level and host translation policies inspect them. Dirty keys, altered storage, detached actors and unavailable rows reject; caller attributes and loaded relations do not carry policy privileges. Non-Eloquent Authenticatable providers retain their own freshness and identity contracts, while the host policy still decides access. Explicit system actors remain subject to that policy.
 
 

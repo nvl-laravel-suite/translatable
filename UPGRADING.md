@@ -1,6 +1,8 @@
 # Upgrading to the native Light contract
 
-Translatable 6.x targets PHP 8.4, Laravel 13, and nvl/core 6.x. Its development suite uses Testbench 11. The optional nvl/ownership 6.x integration replaces the deprecated Tenancy bridge. Upgrade the selected dependency closure together; the wider package family remains on 6.x until its coordinated transition.
+Translatable 7.x targets PHP 8.4, Laravel 13, and nvl/core 7.x. Its development suite uses Testbench 11. The optional nvl/ownership 7.x integration replaces the deprecated Tenancy bridge. Upgrade the selected dependency closure together.
+
+Registered resource reads, canonical owner admission and translation preloads use the writer connection to enforce current visibility when read replicas lag. Existing storage strategies, scopes and bounded batch loading remain in place; this requires no schema migration.
 
 ## Host mutation workflow
 
