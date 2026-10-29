@@ -36,8 +36,6 @@ trait SelfTranslatable
 {
     private ?SelfTranslationDefinition $resolvedTranslationDefinition = null;
 
-    private ?SelfTranslatableOptions $resolvedLegacyTranslationOptions = null;
-
     protected ?string $currentLocale = null;
 
     private bool $buildingLocaleCandidates = false;
@@ -178,15 +176,7 @@ trait SelfTranslatable
     /**
      * Define translation persistence and fallback behavior for this model.
      */
-    protected function defineTranslations(): SelfTranslationDefinition|SelfTranslatableOptions
-    {
-        return $this->selfTranslatableOptions();
-    }
-
-    /**
-     * Return legacy self-row options when a model has not migrated its declaration yet.
-     */
-    protected function selfTranslatableOptions(): SelfTranslatableOptions
+    protected function defineTranslations(): SelfTranslationDefinition
     {
         throw new TranslatableException(
             sprintf('%s must implement defineTranslations().', static::class),
@@ -202,32 +192,10 @@ trait SelfTranslatable
             return $this->resolvedTranslationDefinition;
         }
 
-        $definition = $this->resolveTranslationDefinition(
-            $this->defineTranslations(),
-        );
+        $definition = $this->defineTranslations();
         $definition->assertModel($this);
 
         return $this->resolvedTranslationDefinition = $definition;
-    }
-
-    /**
-     * Return a compatibility view of the model's self-row translation definition.
-     */
-    public function translationOptions(): SelfTranslatableOptions
-    {
-        return $this->resolvedLegacyTranslationOptions
-            ??= SelfTranslatableOptions::fromDefinition($this->translationDefinition());
-    }
-
-    /**
-     * Normalize the typed declaration or its legacy compatibility adapter.
-     */
-    private function resolveTranslationDefinition(
-        SelfTranslationDefinition|SelfTranslatableOptions $definition,
-    ): SelfTranslationDefinition {
-        return $definition instanceof SelfTranslatableOptions
-            ? $definition->toDefinition()
-            : $definition;
     }
 
     /**

@@ -396,7 +396,6 @@
                 "setLocale",
                 "translated",
                 "translationDefinition",
-                "translationOptions",
                 "translationResourceKey",
                 "whereTranslated",
                 "whereTranslationNotNull",
@@ -405,31 +404,6 @@
                 "withResolvedTranslations"
             ],
             "properties": [],
-            "constants": []
-        },
-        "Nvl\\Translatable\\SelfTranslatableOptions": {
-            "kind": "class",
-            "file": "src/SelfTranslatableOptions.php",
-            "methods": [
-                "__construct",
-                "fromDefinition",
-                "toDefinition"
-            ],
-            "properties": [
-                "allowDeletingLastTranslation",
-                "availableLocales",
-                "fallbackLocale",
-                "fallbackLocales",
-                "fallbackOnNull",
-                "fallbackPolicy",
-                "groupKey",
-                "localeKey",
-                "mutationPolicy",
-                "ownershipResource",
-                "sharedFields",
-                "translatableFields",
-                "useFallback"
-            ],
             "constants": []
         },
         "Nvl\\Translatable\\SelfTranslationDefinition": {
@@ -625,7 +599,6 @@
                 "translated",
                 "translation",
                 "translationDefinition",
-                "translationOptions",
                 "translationResourceKey",
                 "translations",
                 "whereTranslated",
@@ -636,37 +609,6 @@
             ],
             "properties": [
                 "translations"
-            ],
-            "constants": []
-        },
-        "Nvl\\Translatable\\TranslatableOptions": {
-            "kind": "class",
-            "file": "src/TranslatableOptions.php",
-            "methods": [
-                "__construct",
-                "assertLocale",
-                "assertTranslatableField",
-                "configuredFallbackLocales",
-                "fromDefinition",
-                "getForeignKey",
-                "localeChain",
-                "normalizedFallbackLocales",
-                "toDefinition"
-            ],
-            "properties": [
-                "availableLocales",
-                "fallbackLocale",
-                "fallbackLocales",
-                "fallbackOnNull",
-                "fallbackPolicy",
-                "foreignKey",
-                "localeKey",
-                "mutationPolicy",
-                "ownerKey",
-                "ownershipResource",
-                "translatableFields",
-                "translationModel",
-                "useFallback"
             ],
             "constants": []
         },

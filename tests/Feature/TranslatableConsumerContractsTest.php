@@ -19,7 +19,7 @@ use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Providers\TranslatableServiceProvider;
 use Nvl\Translatable\RelatedTranslationDefinition;
-use Nvl\Translatable\SelfTranslatableOptions;
+use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\LocaleRegistry;
 use Nvl\Translatable\Services\TranslationDoctor;
@@ -30,7 +30,6 @@ use Nvl\Translatable\Services\TranslationWriter;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
-use Nvl\Translatable\TranslatableOptions;
 use Nvl\Translatable\TranslationResourceDefinition;
 
 test('configured resources fail explicitly for every malformed serializable option', function (
@@ -189,43 +188,41 @@ test('doctor text output is actionable for healthy and invalid consumers', funct
         ->assertFailed();
 });
 
-test('legacy option and locale helpers preserve the canonical consumer contract', function (): void {
+test('native definitions and locale helpers preserve the canonical consumer contract', function (): void {
     config()->set([
         'nvl-translatable.locales' => ['en', 'bg', 'en-GB'],
         'nvl-translatable.default_locale' => 'en',
         'nvl-translatable.fallback_locales' => ['en'],
     ]);
-    $related = new TranslatableOptions(
+    $related = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
         foreignKey: '{table}_owner_id',
-        translatableFields: ['name'],
-        useFallback: false,
-        availableLocales: ['en', 'bg'],
-        fallbackLocale: 'bg',
+        fields: ['name'],
+        fallbackPolicy: TranslationFallbackPolicy::ExactOnly,
+        locales: ['en', 'bg'],
         fallbackLocales: ['en', 'bg'],
         mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
     );
-    $self = new SelfTranslatableOptions(
+    $self = new SelfTranslationDefinition(
         localeKey: 'locale',
         groupKey: 'entry_key',
-        useFallback: false,
-        fallbackLocale: 'bg',
-        availableLocales: ['en', 'bg'],
-        translatableFields: ['name'],
+        fallbackPolicy: TranslationFallbackPolicy::ExactOnly,
+        locales: ['en', 'bg'],
+        fields: ['name'],
         fallbackLocales: ['en', 'bg'],
         sharedFields: ['type'],
         allowDeletingLastTranslation: true,
         mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
     );
-    $selfDefinition = $self->toDefinition();
-    $roundTrippedSelf = SelfTranslatableOptions::fromDefinition($selfDefinition);
+    $selfDefinition = $self;
+    $roundTrippedSelf = $self;
 
-    expect($related->getForeignKey('news_items'))->toBe('news_items_owner_id')
-        ->and($related->normalizedFallbackLocales())->toBe(['en', 'bg'])
+    expect($related->foreignKey('news_items'))->toBe('news_items_owner_id')
+        ->and($related->fallbackLocales)->toBe(['en', 'bg'])
         ->and($related->localeChain('bg'))->toBe(['bg'])
         ->and($related->configuredFallbackLocales())->toBe([])
         ->and($related->assertLocale('BG'))->toBe('bg')
-        ->and($related->toDefinition()->fallbackPolicy)
+        ->and($related->fallbackPolicy)
         ->toBe(TranslationFallbackPolicy::ExactOnly)
         ->and($selfDefinition->fallbackPolicy)->toBe(TranslationFallbackPolicy::ExactOnly)
         ->and($roundTrippedSelf->groupKey)->toBe('entry_key')
@@ -293,7 +290,7 @@ test('related and self consumers can compose every public query and locale helpe
     app(ContentLocale::class)->set('bg');
 
     expect($alpha->setLocale('bg')->getCurrentLocale())->toBe('bg')
-        ->and($alpha->translationOptions()->translatableFields)->toBe(['name', 'description'])
+        ->and($alpha->translationDefinition()->fields)->toBe(['name', 'description'])
         ->and($alpha->isTranslatableAttribute('name'))->toBeTrue()
         ->and($alpha->getTranslatedAttributes('bg')['name'])->toBe('Алфа')
         ->and($alpha->getAllTranslations())->toHaveCount(2)
@@ -303,7 +300,7 @@ test('related and self consumers can compose every public query and locale helpe
         ->and(TestTranslatableModel::query()->orderByTranslated('name', 'asc', 'en')->pluck('slug')->all())
         ->toBe(['alpha', 'beta'])
         ->and($self->setLocale('bg')->getCurrentLocale())->toBe('bg')
-        ->and($self->translationOptions()->sharedFields)->toBe(['type'])
+        ->and($self->translationDefinition()->sharedFields)->toBe(['type'])
         ->and($self->getLocaleKey())->toBe('locale')
         ->and($self->getTranslation('bg', withFallback: false)?->name)->toBe('Алфа')
         ->and($self->getTranslatedAttributes('bg')['description'])->toBe('Описание')

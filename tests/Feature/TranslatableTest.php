@@ -30,7 +30,6 @@ use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTimestampedTranslation;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
-use Nvl\Translatable\TranslatableOptions;
 
 beforeEach(function (): void {
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
@@ -475,14 +474,14 @@ test('typed declarations reject structural collisions and malformed configuratio
         ->toThrow(TranslatableException::class, 'locale must be a string');
 });
 
-test('legacy related options preserve modern fallback and mutation policies', function (): void {
+test('native definitions retain explicit fallback and mutation policies', function (): void {
     $definition = new RelatedTranslationDefinition(
         translationModel: TestTranslatableModelTranslation::class,
         fields: ['name'],
         fallbackPolicy: TranslationFallbackPolicy::AnyAvailable,
         mutationPolicy: TranslationMutationPolicy::OwningServiceOnly,
     );
-    $roundTripped = TranslatableOptions::fromDefinition($definition)->toDefinition();
+    $roundTripped = $definition;
 
     expect($roundTripped->fallbackPolicy)->toBe(TranslationFallbackPolicy::AnyAvailable)
         ->and($roundTripped->mutationPolicy)->toBe(TranslationMutationPolicy::OwningServiceOnly);
@@ -501,4 +500,10 @@ test('it resolves all fields from one admitted translation collection', function
     } finally {
         DB::disableQueryLog();
     }
+});
+
+test('exposes one typed translation definition API without compatibility adapters', function (): void {
+    expect(class_exists('Nvl\\Translatable\\TranslatableOptions'))->toBeFalse()
+        ->and(class_exists('Nvl\\Translatable\\SelfTranslatableOptions'))->toBeFalse()
+        ->and(method_exists(TestTranslatableModel::class, 'translationOptions'))->toBeFalse();
 });

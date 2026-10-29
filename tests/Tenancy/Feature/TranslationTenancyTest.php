@@ -24,7 +24,6 @@ use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\RelatedTranslationDefinition;
-use Nvl\Translatable\SelfTranslatableOptions;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\RelatedTranslationStore;
 use Nvl\Translatable\Services\SelfTranslationStore;
@@ -38,7 +37,6 @@ use Nvl\Translatable\Tests\Support\TenantSelfEntry;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
-use Nvl\Translatable\TranslatableOptions;
 
 it('rejects a retained owner even when its translations were loaded in another tenant', function (): void {
     $s = TenantTranslationScenario::install();
@@ -491,11 +489,11 @@ it('denies adopted storage after removing its native declaration', function (): 
     expect(fn () => $ownership->query($article->newQuery(), $definition))->toThrow(OwnershipConfigurationInvalid::class);
 });
 
-it('preserves ownership declarations in legacy option adapters', function (): void {
+it('exposes ownership declarations directly through native definitions', function (): void {
     $related = (new TenantArticle)->translationDefinition();
     $self = (new TenantSelfEntry)->translationDefinition();
-    expect(TranslatableOptions::fromDefinition($related)->toDefinition()->ownershipResource)->toBe('test.articles');
-    expect(SelfTranslatableOptions::fromDefinition($self)->toDefinition()->ownershipResource)->toBe('test.entries');
+    expect($related->ownershipResource)->toBe('test.articles');
+    expect($self->ownershipResource)->toBe('test.entries');
 });
 
 it('rejects ownership columns in translated and shared payload declarations', function (string $column): void {

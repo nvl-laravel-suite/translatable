@@ -39,22 +39,12 @@ trait Translatable
 {
     private ?RelatedTranslationDefinition $resolvedTranslationDefinition = null;
 
-    private ?TranslatableOptions $resolvedLegacyTranslationOptions = null;
-
     protected ?string $currentLocale = null;
 
     /**
      * Define translation persistence and fallback behavior for this model.
      */
-    protected function defineTranslations(): RelatedTranslationDefinition|TranslatableOptions
-    {
-        return $this->translatableOptions();
-    }
-
-    /**
-     * Return legacy related-row options when a model has not migrated its declaration yet.
-     */
-    protected function translatableOptions(): TranslatableOptions
+    protected function defineTranslations(): RelatedTranslationDefinition
     {
         throw new Exceptions\TranslatableException(
             sprintf('%s must implement defineTranslations().', static::class),
@@ -70,32 +60,10 @@ trait Translatable
             return $this->resolvedTranslationDefinition;
         }
 
-        $definition = $this->resolveTranslationDefinition(
-            $this->defineTranslations(),
-        );
+        $definition = $this->defineTranslations();
         $definition->assertModel($this);
 
         return $this->resolvedTranslationDefinition = $definition;
-    }
-
-    /**
-     * Return a compatibility view of the model's related-row translation definition.
-     */
-    public function translationOptions(): TranslatableOptions
-    {
-        return $this->resolvedLegacyTranslationOptions
-            ??= TranslatableOptions::fromDefinition($this->translationDefinition());
-    }
-
-    /**
-     * Normalize the typed declaration or its legacy compatibility adapter.
-     */
-    private function resolveTranslationDefinition(
-        RelatedTranslationDefinition|TranslatableOptions $definition,
-    ): RelatedTranslationDefinition {
-        return $definition instanceof TranslatableOptions
-            ? $definition->toDefinition()
-            : $definition;
     }
 
     /**

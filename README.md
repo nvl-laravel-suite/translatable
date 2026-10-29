@@ -117,3 +117,5 @@ ContentLocale is scoped to request/job context. Explicit locale arguments overri
 Run php artisan nvl:translatable:doctor --strict to inspect registered resources and schema. Use php artisan nvl:translatable:gather --json for a command-line catalog. The package tests cover related and grouped storage, revisions, fallback, native owner isolation, adoption, queue restoration, and malformed envelopes.
 
 See [UPGRADING.md](UPGRADING.md) for the 6.x contract change and [SECURITY.md](SECURITY.md) for admission requirements.
+
+Shared [service contracts, model extensions and composition](https://github.com/nvl-laravel-suite/laravel-suite/blob/main/docs/consumer-api.md) apply alongside the package-specific rules above.

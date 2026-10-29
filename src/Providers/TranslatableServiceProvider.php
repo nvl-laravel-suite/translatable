@@ -103,11 +103,11 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
 
         $this->publishes([
             __DIR__.'/../../config/nvl-translatable.php' => config_path('nvl-translatable.php'),
-        ], 'translatable-config');
+        ], 'nvl-translatable-config');
 
         $this->publishes([
             __DIR__.'/../../resources/boost/skills' => base_path('.agents/skills'),
-        ], 'translatable-skills');
+        ], 'nvl-translatable-skills');
 
         $this->registerConfiguredResources($resources);
 
