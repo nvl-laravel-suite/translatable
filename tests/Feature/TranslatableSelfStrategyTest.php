@@ -9,15 +9,19 @@ if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
 use Nvl\Support\Enums\SystemActor;
+use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
 use Nvl\Translatable\Enums\TranslationStorageStrategy;
 use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
 use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
+use Nvl\Translatable\Exceptions\TranslationResourceException;
+use Nvl\Translatable\Services\SelfTranslationStore;
 use Nvl\Translatable\Services\TranslationDoctor;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
@@ -49,6 +53,47 @@ beforeEach(function (): void {
         displayColumns: ['entry_key'],
         orderColumn: 'entry_key',
     );
+});
+
+test('self translated comparisons preserve explicit null and literal operators', function (): void {
+    TestSelfTranslatableModel::create(['entry_key' => 'null', 'locale' => 'en', 'name' => null]);
+    TestSelfTranslatableModel::create(['entry_key' => 'equals', 'locale' => 'en', 'name' => '=']);
+
+    expect(TestSelfTranslatableModel::whereTranslated('name', '=', null, 'en')->pluck('entry_key')->all())->toBe(['null'])
+        ->and(TestSelfTranslatableModel::whereTranslated('name', '!=', null, 'en')->pluck('entry_key')->all())->toBe(['equals'])
+        ->and(TestSelfTranslatableModel::whereTranslated('name', null, locale: 'en')->pluck('entry_key')->all())->toBe(['null'])
+        ->and(TestSelfTranslatableModel::whereTranslated('name', '=', locale: 'en')->pluck('entry_key')->all())->toBe(['equals']);
+});
+
+test('self locale batches keep owner and whole-group locks independent of locale count', function (): void {
+    $counts = [];
+    foreach ([['en'], ['en', 'bg', 'en-GB']] as $index => $locales) {
+        $owner = TestSelfTranslatableModel::create(['entry_key' => 'batch-'.$index, 'locale' => 'en', 'name' => 'Original']);
+        $version = app(TranslationResourceVersioner::class)->version($owner);
+        $connection = DB::connection();
+        $localeComparison = $connection->getQueryGrammar()->wrap('locale').' =';
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+        try {
+            app(TranslationWriter::class)->sync($owner, array_fill_keys($locales, ['name' => 'Batch']), SystemActor::Background, $version);
+            $counts[] = count(array_filter($connection->getQueryLog(), static fn (array $query): bool => str_starts_with(strtolower($query['query']), 'select')
+                && str_contains($query['query'], 'test_self_translatable_models')
+                && ! str_contains($query['query'], $localeComparison)));
+        } finally {
+            $connection->disableQueryLog();
+        }
+        expect(TestSelfTranslatableModel::where('entry_key', 'batch-'.$index)->count())->toBe(count($locales));
+    }
+
+    expect($counts[1])->toBe($counts[0]);
+});
+
+test('self locale batches require the actual group transaction before writing', function (): void {
+    $owner = TestSelfTranslatableModel::create(['entry_key' => 'batch-transaction', 'locale' => 'en', 'name' => 'Original']);
+
+    expect(fn () => app(SelfTranslationStore::class)->upsertMany($owner, $owner->translationDefinition(), ['bg' => ['name' => 'Rejected']]))
+        ->toThrow(OwnershipViolation::class)
+        ->and(TestSelfTranslatableModel::where('entry_key', 'batch-transaction')->count())->toBe(1);
 });
 
 test('it declares and writes grouped translations without a canonical owner row', function (): void {
@@ -414,7 +459,7 @@ test('the doctor validates global configuration and grouped schema invariants', 
     $report = app(TranslationDoctor::class)->inspect();
 
     expect($report->isHealthy())->toBeFalse()
-        ->and(implode(' ', $report->errors))->toContain('default_locale');
+        ->and(implode(' ', $report->errors))->toContain('nvl-translatable.default_locale');
 
     config()->set([
         'nvl-translatable.default_locale' => 'en',
@@ -426,6 +471,43 @@ test('the doctor validates global configuration and grouped schema invariants', 
     expect($localeReport->isHealthy())->toBeFalse()
         ->and(implode(' ', $localeReport->errors))
         ->toContain('Model locales must be a subset');
+});
+
+test('the doctor names canonical configuration keys in malformed option diagnostics', function (string $key, mixed $value): void {
+    config()->set($key, $value);
+    $report = app(TranslationDoctor::class)->inspect();
+
+    expect($report->isHealthy())->toBeFalse()
+        ->and(implode(' ', $report->errors))->toContain($key);
+})->with([
+    'empty locales' => ['nvl-translatable.locales', []],
+    'nonstring locale' => ['nvl-translatable.locales', [42]],
+    'unsupported default' => ['nvl-translatable.default_locale', 'fr'],
+    'invalid fallback list' => ['nvl-translatable.fallback_locales', 'en'],
+    'invalid fallback policy' => ['nvl-translatable.fallback.policy', 'invalid'],
+    'invalid on-null flag' => ['nvl-translatable.fallback.on_null', 'yes'],
+    'invalid mutation limit' => ['nvl-translatable.limits.mutation_locales', 0],
+    'invalid transaction attempts' => ['nvl-translatable.transactions.attempts', 0],
+]);
+
+test('translation mutation diagnostics name canonical configuration keys', function (string $key, string $exceptionClass): void {
+    $record = TestSelfTranslatableModel::create(['entry_key' => 'diagnostic', 'locale' => 'en', 'name' => 'Original']);
+    $version = app(TranslationResourceVersioner::class)->version($record);
+    config()->set($key, 0);
+
+    expect(fn () => app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Changed']], SystemActor::Background, $version))
+        ->toThrow($exceptionClass, $key)
+        ->and($record->fresh()?->name)->toBe('Original');
+})->with([
+    'transaction attempts' => ['nvl-translatable.transactions.attempts', TranslationResourceException::class],
+    'payload locale limit' => ['nvl-translatable.limits.mutation_locales', TranslatableException::class],
+]);
+
+test('fallback definition diagnostics name the canonical null policy option', function (): void {
+    config()->set('nvl-translatable.fallback.on_null', 'invalid');
+
+    expect(fn () => (new TestSelfTranslatableModel)->translationDefinition()->shouldFallbackOnNull())
+        ->toThrow(TranslatableException::class, 'nvl-translatable.fallback.on_null');
 });
 
 test('the doctor validates output formats and treats warnings as strict failures', function (): void {

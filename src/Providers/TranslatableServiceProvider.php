@@ -128,14 +128,14 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
 
         if (! is_array($configuredResources)) {
             throw TranslationResourceException::invalid(
-                'The translatable.resources configuration value must be an array.',
+                'The nvl-translatable.resources configuration value must be an array.',
             );
         }
 
         foreach ($configuredResources as $key => $definition) {
             if (! is_string($key) || ! is_array($definition)) {
                 throw TranslationResourceException::invalid(
-                    'Every translatable.resources entry must use a string key and array definition.',
+                    'Every nvl-translatable.resources entry must use a string key and array definition.',
                 );
             }
 

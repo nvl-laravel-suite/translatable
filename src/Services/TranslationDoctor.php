@@ -80,7 +80,7 @@ final readonly class TranslationDoctor
         $configuredLocales = $this->config->get('nvl-translatable.locales') ?? $catalog['locales'];
 
         if (! is_array($configuredLocales) || $configuredLocales === []) {
-            $errors[] = 'translatable.locales must contain at least one locale.';
+            $errors[] = 'nvl-translatable.locales must contain at least one locale.';
             $configuredLocales = [];
         }
 
@@ -88,7 +88,7 @@ final readonly class TranslationDoctor
 
         foreach ($configuredLocales as $locale) {
             if (! is_string($locale)) {
-                $errors[] = 'Every translatable.locales value must be a string.';
+                $errors[] = 'Every nvl-translatable.locales value must be a string.';
 
                 continue;
             }
@@ -111,13 +111,13 @@ final readonly class TranslationDoctor
         $default = $this->config->get('nvl-translatable.default_locale') ?? $catalog['default'];
 
         if (! is_string($default) || ! $this->containsLocale($locales, $default)) {
-            $errors[] = 'translatable.default_locale must be one of the supported locales.';
+            $errors[] = 'nvl-translatable.default_locale must be one of the supported locales.';
         }
 
         $fallbacks = $this->config->get('nvl-translatable.fallback_locales') ?? $catalog['fallbacks'];
 
         if (! is_array($fallbacks)) {
-            $errors[] = 'translatable.fallback_locales must be an array.';
+            $errors[] = 'nvl-translatable.fallback_locales must be an array.';
         } else {
             $normalizedFallbacks = [];
 
@@ -141,11 +141,11 @@ final readonly class TranslationDoctor
         $policy = $this->config->get('nvl-translatable.fallback.policy');
 
         if (! is_string($policy) || TranslationFallbackPolicy::tryFrom($policy) === null) {
-            $errors[] = 'translatable.fallback.policy is invalid.';
+            $errors[] = 'nvl-translatable.fallback.policy is invalid.';
         }
 
         if (! is_bool($this->config->get('nvl-translatable.fallback.on_null'))) {
-            $errors[] = 'translatable.fallback.on_null must be boolean.';
+            $errors[] = 'nvl-translatable.fallback.on_null must be boolean.';
         }
 
         foreach ([
@@ -157,14 +157,14 @@ final readonly class TranslationDoctor
             $value = $this->config->get("nvl-translatable.limits.{$limit}");
 
             if (! is_int($value) || $value < 1) {
-                $errors[] = "translatable.limits.{$limit} must be a positive integer.";
+                $errors[] = "nvl-translatable.limits.{$limit} must be a positive integer.";
             }
         }
 
         $transactionAttempts = $this->config->get('nvl-translatable.transactions.attempts');
 
         if (! is_int($transactionAttempts) || $transactionAttempts < 1) {
-            $errors[] = 'translatable.transactions.attempts must be a positive integer.';
+            $errors[] = 'nvl-translatable.transactions.attempts must be a positive integer.';
         }
 
         return $errors;
@@ -721,7 +721,7 @@ final readonly class TranslationDoctor
         ));
 
         if ($unsupported !== []) {
-            $errors[] = "Resource [{$resource->key}] model locales must be a subset of translatable.locales: "
+            $errors[] = "Resource [{$resource->key}] model locales must be a subset of nvl-translatable.locales: "
                 .implode(', ', $unsupported).'.';
         }
     }

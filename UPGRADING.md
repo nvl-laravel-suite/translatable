@@ -22,6 +22,8 @@ Move the old `HandleContentLocale` middleware and its query/session/cookie setti
 
 TranslationResourceGatherer::summaries(), gather(), and find() take an Authenticatable or SystemActor and return native arrays or a paginator of arrays. Pass a validated native query array to gather() with search, missing_locale, page, and per_page keys. The default authorizer denies all; bind TranslationResourceAuthorizer to allow each ability. Background enum actors require an explicit host decision; ordinary model actors must be persisted.
 
+Ordinary filtered summary resources now aggregate their logical total and all declared locale counts in one writer-side data query. Owner admission, related translation policies, self-row visibility, soft deletion and exact locale matching remain in the SQL predicates; schema and authority checks remain fresh. Scopes using grouping, HAVING, distinct, limits, offsets or locks keep the prior per-locale count behavior to preserve their existing aggregate semantics. Result shapes and unavailable/metadata-only behavior are unchanged. Doctor and locale-registry diagnostics now name the canonical `nvl-translatable.*` option keys.
+
 A resource may be registered by host configuration or TranslationResourceRegistry::register(). Native Ownership applications must register exact protected owner and translation models with OwnershipResourceRegistry, run adoption, and enter an admitted owner or central scope. The old LegacyTranslationOwnership and Tenancy provider path is retired. Keep existing tenant-named columns if they are declared and adopted through native Ownership; do not infer authority from their names.
 
 ## Storage and release checks

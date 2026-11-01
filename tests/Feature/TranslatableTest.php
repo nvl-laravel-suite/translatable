@@ -253,6 +253,49 @@ test('it exposes unambiguous null and non-null translated field scopes', functio
         )->toBe(['with-description']);
 });
 
+test('translated comparisons distinguish explicit null from an omitted comparison value', function (): void {
+    $null = TestTranslatableModel::create(['slug' => 'null']);
+    $equals = TestTranslatableModel::create(['slug' => 'equals']);
+    $null->translations()->create(['locale' => 'en', 'name' => null]);
+    $equals->translations()->create(['locale' => 'en', 'name' => '=']);
+
+    expect(TestTranslatableModel::whereTranslated('name', '=', null, 'en')->pluck('slug')->all())->toBe(['null'])
+        ->and(TestTranslatableModel::whereTranslated('name', '!=', null, 'en')->pluck('slug')->all())->toBe(['equals'])
+        ->and(TestTranslatableModel::whereTranslated('name', null, locale: 'en')->pluck('slug')->all())->toBe(['null'])
+        ->and(TestTranslatableModel::whereTranslated('name', '=', locale: 'en')->pluck('slug')->all())->toBe(['equals']);
+});
+
+test('related locale batches keep canonical owner reads independent of locale count', function (): void {
+    $counts = [];
+    foreach ([['en'], ['en', 'bg', 'en-GB']] as $index => $locales) {
+        $owner = TestTranslatableModel::create(['slug' => 'batch-'.$index]);
+        $version = app(TranslationResourceVersioner::class)->version($owner);
+        $connection = $owner->getConnection();
+        $table = $connection->getQueryGrammar()->wrapTable($owner->getTable());
+        $connection->enableQueryLog();
+        $connection->flushQueryLog();
+        try {
+            app(TranslationWriter::class)->sync($owner, array_fill_keys($locales, ['name' => 'Batch']), SystemActor::Background, $version);
+            $counts[] = count(array_filter($connection->getQueryLog(), static fn (array $query): bool => str_starts_with(strtolower($query['query']), 'select')
+                && str_contains($query['query'], $table)
+                && ! str_contains($query['query'], 'test_translatable_models_i18n')));
+        } finally {
+            $connection->disableQueryLog();
+        }
+        expect($owner->translations()->count())->toBe(count($locales));
+    }
+
+    expect($counts[1])->toBe($counts[0]);
+});
+
+test('related locale batches require the actual owner transaction before writing', function (): void {
+    $owner = TestTranslatableModel::create(['slug' => 'batch-transaction']);
+
+    expect(fn () => app(RelatedTranslationStore::class)->upsertMany($owner, $owner->translationDefinition(), ['en' => ['name' => 'Rejected']]))
+        ->toThrow(OwnershipViolation::class)
+        ->and($owner->translations()->count())->toBe(0);
+});
+
 test('it rejects undeclared fields in reads and query scopes', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'slug-1']);
 

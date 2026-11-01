@@ -85,8 +85,8 @@ final readonly class TranslationWriter
                         ? $this->versioner->emptySelfGroupVersion($record)
                         : null;
 
-                foreach ($normalized as $locale => $attributes) {
-                    $this->storeUpsert($record, $definition, $locale, $attributes);
+                if ($normalized !== []) {
+                    $this->storeUpsertMany($record, $definition, $normalized);
                 }
                 if ($mode === TranslationSyncMode::Replace) {
                     $this->deleteExcept($record, array_keys($normalized));
@@ -262,7 +262,7 @@ final readonly class TranslationWriter
     {
         $attempts = $this->config->get('nvl-translatable.transactions.attempts', 3);
         if (! is_int($attempts) || $attempts < 1) {
-            throw TranslationResourceException::invalid('The translatable.transactions.attempts value must be a positive integer.');
+            throw TranslationResourceException::invalid('The nvl-translatable.transactions.attempts value must be a positive integer.');
         }
 
         return $attempts;
@@ -302,30 +302,27 @@ final readonly class TranslationWriter
     }
 
     /**
-     * Persist one locale through the matching storage strategy.
+     * Persist a locale batch through one guarded storage operation.
      *
-     * @param  array<string, mixed>  $attributes
+     * @param  array<string, array<string, mixed>>  $translations
      */
-    private function storeUpsert(
+    private function storeUpsertMany(
         Model&TranslatableResourceModel $owner,
         TranslationDefinition $definition,
-        string $locale,
-        array $attributes,
-    ): Model {
-        return match (true) {
+        array $translations,
+    ): void {
+        match (true) {
             $owner instanceof TranslatableModel
-                && $definition instanceof RelatedTranslationDefinition => $this->relatedStore->upsert(
+                && $definition instanceof RelatedTranslationDefinition => $this->relatedStore->upsertMany(
                     $owner,
                     $definition,
-                    $locale,
-                    $attributes,
+                    $translations,
                 ),
             $owner instanceof SelfTranslatableModel
-                && $definition instanceof SelfTranslationDefinition => $this->selfStore->upsert(
+                && $definition instanceof SelfTranslationDefinition => $this->selfStore->upsertMany(
                     $owner,
                     $definition,
-                    $locale,
-                    $attributes,
+                    $translations,
                 ),
             default => throw new TranslatableException('The model and translation storage definition do not match.'),
         };

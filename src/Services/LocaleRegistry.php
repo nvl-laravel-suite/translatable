@@ -36,7 +36,7 @@ final readonly class LocaleRegistry
 
         if (! is_array($configured) || $configured === []) {
             throw new TranslatableException(
-                'The translatable.locales configuration must contain at least one locale.',
+                'The nvl-translatable.locales configuration must contain at least one locale.',
             );
         }
 
@@ -75,7 +75,7 @@ final readonly class LocaleRegistry
 
         if (! is_array($configured)) {
             throw new TranslatableException(
-                'The translatable.fallback_locales configuration must be an array.',
+                'The nvl-translatable.fallback_locales configuration must be an array.',
             );
         }
 
@@ -112,7 +112,7 @@ final readonly class LocaleRegistry
 
         if (! is_string($configured)) {
             throw new TranslatableException(
-                'The translatable.default_locale configuration value must be a string.',
+                'The nvl-translatable.default_locale configuration value must be a string.',
             );
         }
 

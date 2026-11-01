@@ -36,44 +36,26 @@ final readonly class SelfTranslationStore
     ): Model {
         $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
-        $shared = [];
+        $this->groupQuery($canonicalOwner, $definition, withTrashed: true)->lockForUpdate()->get();
 
-        foreach ($definition->sharedFields as $field) {
-            $shared[$field] = $canonicalOwner->getAttribute($field);
+        return $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
+    }
+
+    /**
+     * Persist a locale batch under one canonical owner and whole-group lock.
+     *
+     * @param  array<string, array<string, mixed>>  $translations
+     *
+     * @internal
+     */
+    public function upsertMany(Model&SelfTranslatableModel $owner, SelfTranslationDefinition $definition, array $translations): void
+    {
+        $definition = $this->canonicalDefinition($owner, $definition);
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+        $this->groupQuery($canonicalOwner, $definition, withTrashed: true)->lockForUpdate()->get();
+        foreach ($translations as $locale => $attributes) {
+            $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
         }
-
-        $identity = [
-            ...$this->ownership->childAttributes($canonicalOwner, $definition),
-            $definition->groupKey => $canonicalOwner->translationResourceKey(),
-            $definition->localeKey => $locale,
-        ];
-        $this->groupQuery($canonicalOwner, $definition, withTrashed: true)
-            ->lockForUpdate()
-            ->get();
-        $translation = Model::unguarded(
-            fn (): Model => $this->firstOrCreate(
-                $canonicalOwner,
-                $definition,
-                $identity,
-                [...$shared, ...$attributes],
-            ),
-        );
-
-        foreach ([...$shared, ...$attributes, ...$identity] as $field => $value) {
-            $translation->setAttribute($field, $value);
-        }
-
-        if (method_exists($translation, 'trashed')
-            && method_exists($translation, 'restore')
-            && $translation->trashed()) {
-            if (! $translation->restore()) {
-                throw new TranslatableException('The grouped translation row could not be restored.');
-            }
-        } elseif ($translation->isDirty()) {
-            $translation->save();
-        }
-
-        return $translation;
     }
 
     /**
@@ -186,6 +168,50 @@ final readonly class SelfTranslationStore
         $query->orderBy($definition->localeKey);
 
         return $query->get();
+    }
+
+    /**
+     * Write one locale while this store's aggregate operation owns the group locks.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function upsertForOwner(Model&SelfTranslatableModel $canonicalOwner, SelfTranslationDefinition $definition, string $locale, array $attributes): Model
+    {
+        $shared = [];
+
+        foreach ($definition->sharedFields as $field) {
+            $shared[$field] = $canonicalOwner->getAttribute($field);
+        }
+
+        $identity = [
+            ...$this->ownership->childAttributes($canonicalOwner, $definition),
+            $definition->groupKey => $canonicalOwner->translationResourceKey(),
+            $definition->localeKey => $locale,
+        ];
+        $translation = Model::unguarded(
+            fn (): Model => $this->firstOrCreate(
+                $canonicalOwner,
+                $definition,
+                $identity,
+                [...$shared, ...$attributes],
+            ),
+        );
+
+        foreach ([...$shared, ...$attributes, ...$identity] as $field => $value) {
+            $translation->setAttribute($field, $value);
+        }
+
+        if (method_exists($translation, 'trashed')
+            && method_exists($translation, 'restore')
+            && $translation->trashed()) {
+            if (! $translation->restore()) {
+                throw new TranslatableException('The grouped translation row could not be restored.');
+            }
+        } elseif ($translation->isDirty()) {
+            $translation->save();
+        }
+
+        return $translation;
     }
 
     /**

@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Context;
+use Nvl\Translatable\Enums\TranslationComparisonValue;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Services\ContentLocale;
@@ -23,7 +24,7 @@ use Nvl\Translatable\Services\TranslationResolver;
  * @method static Builder<static> locale(?string $locale = null)
  * @method static Builder<static> withResolvedTranslations(?string $locale = null)
  * @method static Builder<static> withAllTranslations(?string $groupValue = null)
- * @method static Builder<static> whereTranslated(string $field, mixed $operator, mixed $value = null, ?string $locale = null)
+ * @method static Builder<static> whereTranslated(string $field, mixed $operator, mixed $value = TranslationComparisonValue::Omitted, ?string $locale = null)
  * @method static Builder<static> whereTranslationNull(string $field, ?string $locale = null)
  * @method static Builder<static> whereTranslationNotNull(string $field, ?string $locale = null)
  * @method static Builder<static> orderByTranslated(string $field, string $direction = 'asc', ?string $locale = null)
@@ -511,14 +512,14 @@ trait SelfTranslatable
         Builder $query,
         string $field,
         mixed $operator,
-        mixed $value = null,
+        mixed $value = TranslationComparisonValue::Omitted,
         ?string $locale = null,
     ): Builder {
         $definition = $this->translationDefinition();
         $definition->assertTranslatableField($field);
         $resolvedLocale = $definition->assertLocale($locale ?? $this->getCurrentLocale());
 
-        if ($value === null) {
+        if ($value === TranslationComparisonValue::Omitted) {
             $value = $operator;
             $operator = '=';
         }

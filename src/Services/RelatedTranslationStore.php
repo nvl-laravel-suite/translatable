@@ -43,24 +43,24 @@ final readonly class RelatedTranslationStore
     ): Model {
         $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
-        $relation = $canonicalOwner->translations();
-        $identity = [
-            ...$this->ownerIdentity($canonicalOwner, $definition),
-            $definition->localeKey => $locale,
-        ];
-        $translation = Model::unguarded(
-            fn (): Model => $this->firstOrCreate($relation, $identity, $attributes),
-        );
 
-        foreach ([...$attributes, ...$identity] as $field => $value) {
-            $translation->setAttribute($field, $value);
+        return $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
+    }
+
+    /**
+     * Persist a locale batch under one freshly acquired canonical owner lock.
+     *
+     * @param  array<string, array<string, mixed>>  $translations
+     *
+     * @internal
+     */
+    public function upsertMany(Model&TranslatableModel $owner, RelatedTranslationDefinition $definition, array $translations): void
+    {
+        $definition = $this->canonicalDefinition($owner, $definition);
+        $canonicalOwner = $this->lockOwner($owner, $definition);
+        foreach ($translations as $locale => $attributes) {
+            $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
         }
-
-        if ($translation->isDirty()) {
-            $translation->save();
-        }
-
-        return $translation;
     }
 
     /**
@@ -301,6 +301,33 @@ final readonly class RelatedTranslationStore
                 }
             }
         }
+    }
+
+    /**
+     * Write one locale while this store's aggregate operation owns the parent lock.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function upsertForOwner(Model&TranslatableModel $canonicalOwner, RelatedTranslationDefinition $definition, string $locale, array $attributes): Model
+    {
+        $relation = $canonicalOwner->translations();
+        $identity = [
+            ...$this->ownerIdentity($canonicalOwner, $definition),
+            $definition->localeKey => $locale,
+        ];
+        $translation = Model::unguarded(
+            fn (): Model => $this->firstOrCreate($relation, $identity, $attributes),
+        );
+
+        foreach ([...$attributes, ...$identity] as $field => $value) {
+            $translation->setAttribute($field, $value);
+        }
+
+        if ($translation->isDirty()) {
+            $translation->save();
+        }
+
+        return $translation;
     }
 
     /**

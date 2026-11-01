@@ -5,6 +5,17 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+### Changed
+
+- Adopt the coordinated 7.x native service/model contract; consumer Actions, DTOs and HTTP delivery remain host-owned. Review [UPGRADING.md](UPGRADING.md) for the removed compatibility surface and migration requirements.
+
+### Fixed
+
+- Aggregate ordinary related/self summary coverage in one data query while preserving visibility and owner predicates; retain legacy count semantics for scopes that reshape aggregation.
+- Name canonical `nvl-translatable.*` options in Doctor and locale-registry diagnostics.
+- Keep canonical owner and self-group lock acquisition constant across multi-locale writes through store-owned batches, retaining transaction, admission and revision checks.
+- Distinguish explicit null comparisons from omitted values in both related and self `whereTranslated` scopes, including shorthand calls with a named locale.
+
 ## [6.0.0] - 2026-10-20
 
 ### Changed

@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Context;
+use Nvl\Translatable\Enums\TranslationComparisonValue;
 use Nvl\Translatable\Relations\TranslationHasMany;
 use Nvl\Translatable\Relations\TranslationHasOne;
 use Nvl\Translatable\Relations\TranslationRelationBuilder;
@@ -26,7 +27,7 @@ use Nvl\Translatable\Services\TranslationResolver;
  *
  * @method static Builder<static> withAllTranslations()
  * @method static Builder<static> withResolvedTranslations(?string $locale = null)
- * @method static Builder<static> whereTranslated(string $field, mixed $operator, mixed $value = null, ?string $locale = null)
+ * @method static Builder<static> whereTranslated(string $field, mixed $operator, mixed $value = TranslationComparisonValue::Omitted, ?string $locale = null)
  * @method static Builder<static> whereTranslationNull(string $field, ?string $locale = null)
  * @method static Builder<static> whereTranslationNotNull(string $field, ?string $locale = null)
  * @method static Builder<static> orderByTranslated(string $field, string $direction = 'asc', ?string $locale = null)
@@ -293,14 +294,14 @@ trait Translatable
         Builder $query,
         string $field,
         mixed $operator,
-        mixed $value = null,
+        mixed $value = TranslationComparisonValue::Omitted,
         ?string $locale = null,
     ): Builder {
         $options = $this->translationDefinition();
         $options->assertTranslatableField($field);
         $resolvedLocale = $options->assertLocale($locale ?? $this->getCurrentLocale());
 
-        if ($value === null) {
+        if ($value === TranslationComparisonValue::Omitted) {
             $value = $operator;
             $operator = '=';
         }

@@ -39,3 +39,11 @@ test('configured resources reject malformed metadata instead of silently default
         app(TranslationResourceRegistry::class),
     ))->toThrow(TranslationResourceException::class, 'array of strings');
 });
+
+test('configured resource diagnostics name their canonical configuration root', function (mixed $resources): void {
+    config()->set('nvl-translatable.resources', $resources);
+    $provider = new TranslatableServiceProvider(app());
+
+    expect(fn () => $provider->boot(app(TranslationResourceRegistry::class)))
+        ->toThrow(TranslationResourceException::class, 'nvl-translatable.resources');
+})->with(['nonarray catalog' => ['invalid'], 'nonarray resource' => [['tests.invalid' => 'invalid']]]);

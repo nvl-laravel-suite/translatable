@@ -318,7 +318,7 @@ test('locale registry rejects malformed catalogs and builds deterministic region
     $registry = app(LocaleRegistry::class);
 
     config()->set('nvl-translatable.locales', []);
-    expect(fn () => $registry->supported())->toThrow(TranslatableException::class, 'at least one locale');
+    expect(fn () => $registry->supported())->toThrow(TranslatableException::class, 'nvl-translatable.locales');
 
     config()->set('nvl-translatable.locales', ['en', 42]);
     expect(fn () => $registry->supported())->toThrow(TranslatableException::class, 'must be a string');
@@ -339,7 +339,7 @@ test('locale registry rejects malformed catalogs and builds deterministic region
         ->and($registry->chain('en-GB', ['bg']))->toBe(['en-GB', 'en', 'bg']);
 
     config()->set('nvl-translatable.fallback_locales', 'bg');
-    expect(fn () => $registry->fallbacks())->toThrow(TranslatableException::class, 'must be an array');
+    expect(fn () => $registry->fallbacks())->toThrow(TranslatableException::class, 'nvl-translatable.fallback_locales');
 
     config()->set('nvl-translatable.fallback_locales', [42]);
     expect(fn () => $registry->fallbacks())->toThrow(TranslatableException::class, 'must be a string');
@@ -351,7 +351,7 @@ test('locale registry rejects malformed catalogs and builds deterministic region
         'nvl-translatable.fallback_locales' => [],
         'nvl-translatable.default_locale' => 42,
     ]);
-    expect(fn () => $registry->default())->toThrow(TranslatableException::class, 'must be a string');
+    expect(fn () => $registry->default())->toThrow(TranslatableException::class, 'nvl-translatable.default_locale');
 
     config()->set('nvl-translatable.default_locale', 'en');
     expect(fn () => $registry->assertSupported('fr'))->toThrow(TranslatableException::class, 'not supported')

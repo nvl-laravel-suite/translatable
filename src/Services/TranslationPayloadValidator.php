@@ -114,7 +114,7 @@ final readonly class TranslationPayloadValidator
 
         if (! is_int($value) || $value < 1) {
             throw new TranslatableException(
-                "The translatable.limits.{$key} value must be a positive integer.",
+                "The nvl-translatable.limits.{$key} value must be a positive integer.",
             );
         }
 

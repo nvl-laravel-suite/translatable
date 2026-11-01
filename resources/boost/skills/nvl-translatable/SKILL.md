@@ -1,64 +1,74 @@
 ---
 name: nvl-translatable
-description: Use when designing, implementing, migrating, integrating, testing, diagnosing, auditing, or reviewing nvl/translatable in Laravel, including related translation tables, grouped self rows, fallback, content locale, native Ownership isolation, registered resource reads, authorized mutation, revisions, and schema diagnostics.
+description: Use when integrating localized Eloquent content with related translation tables or grouped locale rows, fallback reads, registered resource editing, revisions or content-locale context in Laravel.
 ---
 
 # NVL Translatable
 
-Translatable owns locale storage and its native service contract. The host owns HTTP requests, controllers, Actions, Data objects, and frontend types. Do not invent a package facade to restore retired public operations.
+Translatable stores and resolves localized model content.
+Use `nvl/translations` instead for Laravel PHP/JSON string catalogs.
+The host owns its models/schema, HTTP locale selection, actor policy and presentation.
 
-The package publishes no HTTP middleware or query/session/cookie configuration. Use `tests/Fixtures/Consumer/HandleContentLocale.php` only as a host-owned example, and keep its `consumer.content_locale.*` settings in the application.
+## References
 
-## Start with the concrete storage
+- [Installation](references/installation.md): providers, config, publishing and optional Ownership setup.
+- [API](references/api.md): definitions, model/trait contracts, writer/reader signatures and shapes.
+- [Usage](references/usage.md): related/self models, registration, revision writes, locale and batch reads.
 
-1. Inspect the model, migration, actual connection, primary and logical keys, casts, indexes, and host authorization.
-2. Choose related rows when a canonical owner has locale independent state. Choose grouped self rows when the logical resource consists only of locale rows.
-3. Implement TranslatableModel with Translatable and RelatedTranslationDefinition, or SelfTranslatableModel with SelfTranslatable and SelfTranslationDefinition.
-4. Declare fields, locales, fallback policy, and a stable group key for self rows. Never infer fields or schema from a model directory.
-5. Register each concrete model and resource key in TranslationResourceRegistry. Whitelist search, display, ordering, and maximum page size.
-6. If Ownership protects it, register the exact owner and translation models with OwnershipResourceRegistry, adopt their schema, and enter an admitted owner or central scope. A tenant-named column alone grants nothing.
-7. Run focused Pest, PHPStan, Pint, and nvl:translatable:doctor checks.
+Inspect the recipe for the selected storage strategy before defining the model.
 
-Related rows need a same-connection parent relation, cascade foreign key, and unique parent/locale index. Self rows need immutable group/locale identity and a unique logical group/locale index. Native Ownership adds its declared owner scope key and durable admission requirements. Soft-deleted self locale rows may be restored by the storage workflow; keep uniqueness across active and deleted rows.
+## Choose storage and register it
 
-## Read and resolve
+Use `TranslatableModel` plus `Translatable` with `RelatedTranslationDefinition` for a canonical owner and separate locale table.
+Use `SelfTranslatableModel` plus `SelfTranslatable` with `SelfTranslationDefinition` for one logical group of locale rows.
+Declare allowed fields/locales and fallback policy; never infer them from a model directory.
+Related storage needs a same-connection owner/translation schema, parent foreign key and unique parent/locale index.
+Self storage needs an immutable group key distinct from physical ID and a unique group/locale index.
+Register each exact concrete model under `TranslationResourceRegistry`.
+Declare search/display/order columns and maximum page size; substitutions require deliberate registration/schema compatibility.
+With native Ownership, register/adopt the exact resources and required principals before admitted use.
+A tenant-named column alone does not supply owner authority.
 
-Use translated() for a value and resolveTranslation() for its provenance. Preserve empty strings and other non-null falsey values. Use Configured fallback by default, ExactOnly when fallback is forbidden, and AnyAvailable only when product behavior explicitly allows it. Explicit ContentLocale is scoped to request or job context and restored after a native Ownership callback.
+## Read the appropriate projection
 
-Use getAllTranslations(), getAvailableLocales(), locale(), withResolvedTranslations(), and declared translated-field scopes. Apply model visibility and owner constraints before locale selection. Batch preloading should remain bounded as page size grows; do not admit a row from a different owner or resource query scope.
+Use `translated` for a field and `resolveTranslation` when provenance matters.
+Empty strings and other non-null falsey values are real values.
+`TranslationFallbackPolicy::Configured` fallback is the default; choose `TranslationFallbackPolicy::ExactOnly` or `TranslationFallbackPolicy::AnyAvailable` deliberately.
+Content locale is separate from Laravel UI locale; `ContentLocale::withLocale` restores temporary context around request/job/nested work.
+Explicit read locale arguments override model-instance/context defaults.
+Related resolved-translation scopes preload rows; self scopes select preferred group rows. Use the strategy-specific read recipe.
+Use `RelatedTranslationStore::rowsForOwners` for at most 1,000 related owners per batch.
+Use `TranslationResourceGatherer` for authorized summaries, paginated resources and one normalized record.
+Registered visibility/admission/preloads use writer connections and must remain fresh.
 
-For related-row collection projections, call `RelatedTranslationStore::rowsForOwners($owners)` with a list of at most 1,000 models and consume its native collections in input order. It batches fresh storage and canonical owner checks by actual storage group, validates loaded children, and loads missing relations. Individual model reads continue to recheck current admission; never add a consumer authorization/schema cache or bypass guarded relations to reduce queries.
+## Mutate through the complete writer
 
-TranslationResourceGatherer::summaries(), gather(), and find() return native arrays or a paginator of arrays. They take an actual Illuminate\Contracts\Auth\Authenticatable or Nvl\Support\Enums\SystemActor. Gather accepts only search, missing_locale, page, and per_page query keys. The host validates its HTTP query and formats its own DTOs.
+Bind `TranslationResourceAuthorizer`; the default denies every capability.
+It receives explicit `Authenticatable|SystemActor`, ability, resource and optional record.
+Eloquent actors are freshly reloaded; other providers retain their host freshness contract.
+System actors need explicit authorization and may not come from client input.
+Read the current opaque version through `TranslationResourceVersioner::version`.
+Pass that mandatory string version to `TranslationWriter::sync` or `deleteLocale`.
+The writer locks/revalidates the canonical model on its actual connection and enforces host policy/CAS.
+Events follow the real outer commit; rollback cannot publish committed translation events.
+Patch preserves omitted locales/fields; Replace removes omitted locales according to its storage contract.
+Explicit null is a value, not omission; undeclared fields/locales and oversized payloads reject.
+An omitted resource key is valid only for exactly one matching registration.
+`TranslationMutationPolicy::OwningServiceOnly` resources reject generic writer mutations; their domain service owns the complete workflow.
 
-Registered resource visibility, canonical owner admission and translation preloads use writer connections. Preserve this when extending resource queries so a lagging read replica cannot expose revoked resources.
+## Operational constraints
 
-## Mutate through the complete service
+Self groups protect their final live locale unless `allowDeletingLastTranslation` is explicitly enabled.
+An allowed empty Replace can return an empty/nonpersisted or trashed group identity; do not treat it as a live writer target.
+No package HTTP middleware, query/session/cookie policy or generic mutation endpoint is supplied.
+Boot unowned features with optional Ownership physically absent; missing required owner context fails closed.
+Do not cache canonical authority/schema admission in a consumer to reduce query count.
+Native arrays/paginators/models are the output; consumer DTOs and frontend types stay in the application.
 
-Bind TranslationResourceAuthorizer in the host. Its default implementation denies access. Persist ordinary actors before writing; authorize SystemActor values explicitly. Derive both from trusted server state.
+## Verify
 
-Read the current revision with TranslationResourceVersioner::version() on a canonical, admitted model. Pass the mandatory revision into TranslationWriter::sync() or deleteLocale(). The writer owns the model-connection transaction, locks and re-reads canonical storage, enforces resource and actor policy, verifies the revision, and dispatches events after commit.
-
-    $version = $versioner->version($article);
-    $article = $writer->sync(
-        owner: $article,
-        translations: ['bg' => ['title' => 'Заглавие']],
-        actor: $user,
-        expectedVersion: $version,
-        mode: TranslationSyncMode::Patch,
-        resourceKey: 'articles',
-    );
-
-Patch preserves omitted locales. Replace removes omitted locales. An explicit null is different from an omitted field. Reject unknown locales or fields, oversized payloads, stale revisions, and wrong model/resource combinations before mutation. The resource key may be omitted only when the concrete model has exactly one registration. An explicit key still enforces exact model, canonical storage, query scope, and actor policy.
-
-`SelfTranslationDefinition::allowDeletingLastTranslation` is an explicit opt-in. Final delete and empty Replace then remove the live group; empty Replace returns the group identity with an empty relation, marked non-persisted after hard deletion or trashed after soft deletion. The committed event carries the terminal revision. Otherwise preserve final-row protection.
-
-Use TranslationMutationPolicy::OwningServiceOnly when a domain service must own related validation or lifecycle. TranslationWriter rejects generic writes for such resources. Genuine model casts and storage hooks may stage or persist fields inside that separately authorized service workflow; they have no independent actor semantics. Avoid raw SQL, bulk query writes, and client-supplied ownership columns.
-
-## Audit and verify
-
-- Test related and grouped rows for exact/fallback/null reads, soft deletes, patch/replace, final self-row protection, version collisions, after-commit events, malformed payloads, and connection selection.
-- Test native Ownership isolation for stale owner or generation, forged parent IDs, explicit out-of-scope resource keys, worker context restoration, and missing-runtime denial.
-- Measure first and consecutive same-scope reads as well as page-size scaling. Preserve fresh readiness, store, and fence checks while reducing redundant queries.
-- Run nvl:translatable:doctor --strict after schema or registration changes. The doctor inspects native Ownership readiness and resource schema; it does not adopt or rewrite rows.
-- Keep nvl-translatable configuration and published tags canonical. Rebuild config caches and restart workers after reviewed registration or adoption changes.
+Run `php artisan nvl:translatable:doctor --strict` after model/schema/registration changes.
+`php artisan nvl:translatable:gather --json` exposes the command-line resource catalog.
+Test both strategies, fallback/nulls, patch/replace, stale versions and final-locale behavior.
+Test actor freshness, owner isolation, loaded-child validation, selected connections and context restoration.
+Measure page-size scaling while preserving fresh admission; do not infer concurrent safety from sequential tests.

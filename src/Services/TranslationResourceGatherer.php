@@ -27,6 +27,7 @@ use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Events\TranslationResourcesGathered;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
+use Nvl\Translatable\Relations\LocaleCoverageCount;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\TranslationResourceDefinition;
 use UnitEnum;
@@ -74,13 +75,7 @@ final readonly class TranslationResourceGatherer
             }
 
             try {
-                $total = $this->logicalTotal($resource);
-                $coverage = [];
-
-                foreach ($metadata['locales'] as $locale) {
-                    $translated = $this->translatedTotal($resource, $model, $locale);
-                    $coverage[$locale] = ['translated' => $translated, 'missing' => max(0, $total - $translated)];
-                }
+                ['total' => $total, 'coverage' => $coverage] = $this->coverageCounts($resource, $model, $metadata['locales']);
             } catch (OwnershipViolation $exception) {
                 if (! $this->allowsMetadataOnlyCatalog($model)) {
                     throw $exception;
@@ -240,6 +235,110 @@ final readonly class TranslationResourceGatherer
             $model->getTable(),
             $translationTable,
         );
+    }
+
+    /**
+     * Aggregate ordinary filtered resources without fetching rows or bypassing guarded visibility.
+     *
+     * @param  list<string>  $locales
+     * @return array{total: int, coverage: array<string, array{translated: int, missing: int}>}
+     */
+    private function coverageCounts(
+        TranslationResourceDefinition $resource,
+        Model&TranslatableResourceModel $model,
+        array $locales,
+    ): array {
+        $query = $this->locator->query($resource);
+        $base = $query->toBase();
+
+        if ($base->groups !== null || $base->havings !== null || $base->limit !== null
+            || $base->offset !== null || $base->distinct !== false || $base->lock !== null) {
+            $total = $this->logicalTotal($resource);
+            $coverage = [];
+            foreach ($locales as $locale) {
+                $translated = $this->translatedTotal($resource, $model, $locale);
+                $coverage[$locale] = ['translated' => $translated, 'missing' => max(0, $total - $translated)];
+            }
+
+            return ['total' => $total, 'coverage' => $coverage];
+        }
+
+        $aggregate = $base->cloneWithout(['columns', 'orders'])->cloneWithoutBindings(['select', 'order'])
+            ->useWritePdo()->selectRaw('COUNT(*) AS nvl_translation_total');
+        foreach ($locales as $index => $locale) {
+            $presence = $this->coveragePresence($resource, $model, $query, $locale);
+            $count = new LocaleCoverageCount($presence, 'nvl_translation_locale_'.$index);
+            $aggregate->addSelect($count);
+            $aggregate->addBinding($count->bindings(), 'select');
+        }
+
+        $row = $aggregate->first();
+        $total = $this->summaryCount($row?->nvl_translation_total);
+        $coverage = [];
+        foreach ($locales as $index => $locale) {
+            $translated = $this->summaryCount($row?->{'nvl_translation_locale_'.$index});
+            $coverage[$locale] = ['translated' => $translated, 'missing' => max(0, $total - $translated)];
+        }
+
+        return ['total' => $total, 'coverage' => $coverage];
+    }
+
+    /**
+     * Compile the same guarded locale-existence predicate used by individual coverage counts.
+     *
+     * @param  Builder<Model>  $query
+     */
+    private function coveragePresence(
+        TranslationResourceDefinition $resource,
+        Model&TranslatableResourceModel $model,
+        Builder $query,
+        string $locale,
+    ): QueryBuilder {
+        $definition = $model->translationDefinition();
+        if ($model instanceof SelfTranslatableModel && $definition instanceof SelfTranslationDefinition) {
+            $table = $model->getTable();
+            $alias = 'translation_coverage_rows';
+            $partitionColumns = $this->ownershipColumns($definition);
+            $visibleRows = $this->locator->rows($resource)->select(array_values(array_unique([
+                ...$partitionColumns, $definition->groupKey, $definition->localeKey,
+            ])));
+            $presence = $model->getConnection()->query()->selectRaw('1')->fromSub($visibleRows, $alias);
+
+            foreach ($partitionColumns as $column) {
+                $presence->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
+            }
+
+            return $presence->whereColumn("{$alias}.{$definition->groupKey}", "{$table}.{$definition->groupKey}")
+                ->where("{$alias}.{$definition->localeKey}", $locale);
+        }
+
+        if (! $model instanceof TranslatableModel) {
+            throw new LogicException('Unsupported translatable resource model.');
+        }
+
+        $probe = (clone $query)->whereHas('translations', static fn (Builder $translations): Builder => $translations->where($definition->localeKey, $locale));
+        $conditions = $probe->getQuery()->wheres;
+        $presence = end($conditions);
+        if (! is_array($presence) || ($presence['type'] ?? null) !== 'Exists'
+            || ! ($presence['query'] ?? null) instanceof QueryBuilder) {
+            throw new LogicException('Translation coverage requires the guarded relation-existence predicate.');
+        }
+
+        return $presence['query'];
+    }
+
+    /** Normalize aggregate driver results without accepting arbitrary scalar values. */
+    private function summaryCount(mixed $value): int
+    {
+        if (is_int($value) && $value >= 0) {
+            return $value;
+        }
+
+        if (is_string($value) && ctype_digit($value)) {
+            return (int) $value;
+        }
+
+        throw new LogicException('Translation coverage returned an invalid aggregate count.');
     }
 
     /**

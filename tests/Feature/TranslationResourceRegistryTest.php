@@ -292,6 +292,113 @@ test('it gathers normalized translations and locale coverage without n plus one 
         ->and($page->items()[0]['version'])->toHaveLength(64);
 });
 
+test('summary coverage uses one aggregate for scoped related and self resources', function (string $storage, int $records): void {
+    if ($storage === 'self') {
+        Schema::dropIfExists('test_self_translatable_models');
+        Schema::create('test_self_translatable_models', function (Blueprint $table): void {
+            $table->id();
+            $table->string('entry_key');
+            $table->string('locale', 35);
+            $table->string('name')->nullable();
+            $table->string('description')->nullable();
+            $table->string('type')->nullable();
+            $table->unique(['entry_key', 'locale'], 'coverage_self_locale_unique');
+        });
+    }
+    $model = $storage === 'self' ? new TestSelfTranslatableModel : new TestTranslatableModel;
+    if (getenv('NVL_FULL_DATABASE') === '1') {
+        expect($model->getConnection()->getDriverName())->toBe(getenv('DB_CONNECTION'))
+            ->and($model->getConnection()->getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME))->toBe(getenv('DB_CONNECTION') === 'mariadb' ? 'mysql' : getenv('DB_CONNECTION'));
+    }
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.coverage',
+        modelClass: $model::class,
+        label: 'Visible coverage',
+        queryScope: static function (Builder $query) use ($storage): Builder {
+            if ($storage === 'self') {
+                return $query->where('type', 'visible')->where('locale', '!=', 'bg');
+            }
+
+            return $query->where('slug', 'visible');
+        },
+    );
+
+    foreach (['visible' => $records, 'hidden' => 1] as $visibility => $count) {
+        for ($index = 0; $index < $count; $index++) {
+            if ($storage === 'self') {
+                TestSelfTranslatableModel::create(['entry_key' => $visibility.'-'.$index, 'locale' => 'en', 'name' => null, 'type' => $visibility]);
+                if ($index === 0) {
+                    TestSelfTranslatableModel::create(['entry_key' => $visibility.'-'.$index, 'locale' => 'bg', 'name' => '', 'type' => $visibility]);
+                }
+            } else {
+                $owner = TestTranslatableModel::create(['slug' => $visibility]);
+                $owner->translations()->create(['locale' => 'en', 'name' => null]);
+                if ($index === 0) {
+                    $owner->translations()->create(['locale' => 'bg', 'name' => '']);
+                }
+                $owner->translations()->create(['locale' => 'fr', 'name' => 'Unsupported legacy locale']);
+            }
+        }
+    }
+
+    $connection = $model->getConnection();
+    $connection->enableQueryLog();
+    $connection->flushQueryLog();
+    try {
+        $summary = collect(app(TranslationResourceGatherer::class)->summaries(SystemActor::Background))->firstWhere('key', 'tests.coverage');
+        $aggregateQueries = array_filter($connection->getQueryLog(), static fn (array $query): bool => str_starts_with(strtolower($query['query']), 'select count(')
+            && in_array('visible', $query['bindings'], true));
+    } finally {
+        $connection->disableQueryLog();
+    }
+
+    $translatedBulgarian = $storage === 'related' && $records > 0 ? 1 : 0;
+    expect($summary['total'])->toBe($records)
+        ->and($summary['coverage']['en'])->toBe(['translated' => $records, 'missing' => 0])
+        ->and($summary['coverage']['bg'])->toBe(['translated' => $translatedBulgarian, 'missing' => $records - $translatedBulgarian])
+        ->and($summary['coverage']['en-GB'])->toBe(['translated' => 0, 'missing' => $records])
+        ->and($summary['coverage'])->not->toHaveKey('fr')
+        ->and($aggregateQueries)->toHaveCount(1);
+})->with(['related', 'self'])->with([0, 2, 40]);
+
+test('summary coverage retains the existing count semantics of a limited host scope', function (): void {
+    $owner = TestTranslatableModel::create(['slug' => 'limited']);
+    $owner->translations()->create(['locale' => 'en', 'name' => 'Visible']);
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.limited',
+        modelClass: TestTranslatableModel::class,
+        label: 'Limited scope',
+        queryScope: static fn (Builder $query): Builder => $query->limit(0),
+    );
+
+    $summary = collect(app(TranslationResourceGatherer::class)->summaries(SystemActor::Background))->firstWhere('key', 'tests.limited');
+
+    expect($summary['total'])->toBe(0)
+        ->and($summary['coverage']['en'])->toBe(['translated' => 0, 'missing' => 0]);
+});
+
+test('summary coverage rejects immediate and deferred unions before aggregation', function (bool $deferred): void {
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.union',
+        modelClass: TestTranslatableModel::class,
+        label: 'Rejected union',
+        queryScope: static function (Builder $query) use ($deferred): Builder {
+            if ($deferred) {
+                $query->getQuery()->beforeQuery(static function (Illuminate\Database\Query\Builder $base): void {
+                    $base->union(TestTranslatableModel::query()->toBase());
+                });
+
+                return $query;
+            }
+
+            return $query->union(TestTranslatableModel::query());
+        },
+    );
+
+    expect(fn () => app(TranslationResourceGatherer::class)->summaries(SystemActor::Background))
+        ->toThrow(TranslationResourceException::class, 'registered model, table, and connection');
+})->with([false, true]);
+
 test('it reports resources as unavailable until both persistence tables exist', function (): void {
     Schema::drop('test_translatable_models_i18n');
 

@@ -18,6 +18,7 @@ use Nvl\Translatable\TranslationResourceDefinition;
 
 beforeEach(function (): void {
     config(['nvl-translatable.locales' => ['en', 'bg', 'en-GB']]);
+    Schema::dropIfExists('resource_translation_actor_test_users');
     Schema::create('resource_translation_actor_test_users', static function (Blueprint $table): void {
         $table->id();
         $table->boolean('can_translate')->default(false);
@@ -30,6 +31,10 @@ beforeEach(function (): void {
         $table->string('description')->nullable();
         $table->timestamps();
     });
+});
+
+afterEach(function (): void {
+    Schema::dropIfExists('resource_translation_actor_test_users');
 });
 
 it('passes canonical persisted actor facts to resource and host translation policies', function (bool $definitionPolicy): void {

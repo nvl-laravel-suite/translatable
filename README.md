@@ -108,6 +108,8 @@ TranslationResourceGatherer returns native arrays, not package DTOs:
 
 Queries are bounded by the resource's allowed columns, stable order, and maximum page size. Related and grouped-row storage yield one logical resource per record. The host owns HTTP parsing, controllers, Actions, Data objects, and frontend types. This package does not register their providers or expose a generic HTTP mutation endpoint.
 
+For ordinary filtered resources, summaries compute the logical total and exact locale coverage in one aggregate data query, preserving related-row policies, self-row visibility and owner partitions. Fresh schema and authority probes remain separate. Host scopes with grouping, HAVING, distinct projections, limits, offsets or locks retain their existing total-plus-per-locale counting semantics; their data-query count still grows with the declared locale list. No summary or admission result is cached across operations.
+
 ## Consumer HTTP locale adapter
 
 The host chooses how query, stored preference, session, and cookie values select a request locale. A complete consumer-owned middleware example and its precedence/restoration tests live in `tests/Fixtures/Consumer/HandleContentLocale.php` in the source checkout and `tests/Feature/HandleContentLocaleMiddlewareTest.php` in the source checkout. Copy or adapt it into the application's HTTP layer and keep its `consumer.content_locale.*` settings in the application. Translatable publishes no middleware class or HTTP settings and has no direct Symfony HTTP requirement.

@@ -14,7 +14,7 @@ use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Symfony\Component\Process\Process;
 
 it('restores tenant translation context in a real database queue worker', function (): void {
-    $vendor = dirname((new ReflectionClass(InstalledVersions::class))->getFileName(), 2);
+    $vendor = dirname(InstalledVersions::getInstallPath('laravel/framework') ?? throw new RuntimeException('Laravel test dependencies are not installed.'), 2);
     $source = dirname(__DIR__, 2).'/Fixtures/tenancy-consumer';
     $fixture = sys_get_temp_dir().'/nvl-translatable-worker-'.bin2hex(random_bytes(8));
     $database = $fixture.'/database.sqlite';
