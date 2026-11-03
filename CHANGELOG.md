@@ -5,6 +5,10 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [7.0.0] - 2026-11-03
+
+- Adopt the reviewed NVL 7 family for PHP 8.4+ and Laravel 13, with compatible required and optional NVL peers. Review the package upgrade guide before deployment.
+
 ### Changed
 
 - Adopt the coordinated 7.x native service/model contract; consumer Actions, DTOs and HTTP delivery remain host-owned. Review [UPGRADING.md](UPGRADING.md) for the removed compatibility surface and migration requirements.
