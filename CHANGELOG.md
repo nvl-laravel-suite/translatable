@@ -5,6 +5,8 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [7.0.1] - 2026-11-11
+
 ### Fixed
 
 - An explicit `nvl-translatable.locales` catalogue without explicit `default_locale`/`fallback_locales` no longer throws `InvalidLocaleException` on every read when the application locales are outside it: derived fallbacks are limited to supported locales and the derived default falls back to the first supported locale. Explicitly configured values are still validated strictly.
@@ -14,6 +16,12 @@ All notable changes to `nvl/translatable` are documented here.
 - A bound `ContentLocalePreferenceResolver` is now consulted: `ContentLocale::get()`, the new `ContentLocale::preferred()` and model reads without an explicit locale use a supported application-owned preference after an explicitly set content locale and before the application locale. The default binding returns no preference, so behavior is unchanged without a host resolver.
 - `ContentLocale::isEnglish()` and `isBulgarian()` are deprecated in favour of `is()` and no longer assume those locales are part of the configured catalogue.
 - A related translation write admits its locked owner identity once per locale batch, and unowned relation scoping probes owner and translation storage in one batch; the locale registry normalizes the configured catalogue only when it changes.
+
+<!-- NVL GENERATED CHANGES START -->
+### Changed
+
+- share storage probes per request and correct preload checks
+<!-- NVL GENERATED CHANGES END -->
 
 ## [7.0.0] - 2026-11-03
 
