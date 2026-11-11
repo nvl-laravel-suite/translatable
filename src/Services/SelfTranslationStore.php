@@ -137,7 +137,7 @@ final readonly class SelfTranslationStore
             $group = $owner->getConnection()->table($owner->getTable())
                 ->where($owner->getKeyName(), $owner->getRawOriginal($owner->getKeyName()))
                 ->value($definition->groupKey);
-            if ($group !== $owner->getRawOriginal($definition->groupKey)) {
+            if (! $this->sameIdentity($group, $owner->getRawOriginal($definition->groupKey))) {
                 throw $this->ownership->violation('The canonical translation group identity has changed.');
             }
         }
@@ -171,12 +171,16 @@ final readonly class SelfTranslationStore
     }
 
     /**
-     * Write one locale while this store's aggregate operation owns the group locks.
+     * Write one declared locale and field set while this store's aggregate operation owns the group locks.
      *
      * @param  array<string, mixed>  $attributes
      */
     private function upsertForOwner(Model&SelfTranslatableModel $canonicalOwner, SelfTranslationDefinition $definition, string $locale, array $attributes): Model
     {
+        $locale = $definition->assertLocale($locale);
+        foreach (array_keys($attributes) as $field) {
+            $definition->assertTranslatableField($field);
+        }
         $shared = [];
 
         foreach ($definition->sharedFields as $field) {

@@ -166,3 +166,54 @@ it('rejects dirty native primary owner fields in batched eager translation handl
         expect(fn () => (new OwnershipRelatedRecord)->newCollection([$record])->load('translations'))->toThrow(OwnershipViolation::class);
     });
 });
+
+it('admits an owned canonical owner whose integer key the driver returns as a numeric string', function (): void {
+    app(OwnershipRunner::class)->run(OwnershipCompany::query()->findOrFail(7), OwnershipActor::query()->firstOrFail(), function (): void {
+        $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $assignment): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$assignment->attributes(), 'id' => 70]));
+        $pdo = DB::connection()->getPdo();
+        $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, true);
+
+        try {
+            expect($record->getRawOriginal('id'))->toBe(70);
+            $identity = app(RelatedTranslationStore::class)->ownerIdentity($record, $record->translationDefinition());
+            app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Stringified'], 'bg' => ['name' => 'Низ']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
+
+            expect((string) $identity['record_id'])->toBe('70')
+                ->and($record->translated('name', 'bg'))->toBe('Низ')
+                ->and(OwnershipRelatedTranslation::query()->count())->toBe(2);
+
+            $record->setRawAttributes([...$record->getAttributes(), 'id' => '070'], true);
+            expect(fn () => app(RelatedTranslationStore::class)->ownerIdentity($record, $record->translationDefinition()))->toThrow(OwnershipViolation::class);
+        } finally {
+            $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, false);
+        }
+    });
+});
+
+it('admits the locked canonical owner once for a whole locale batch', function (): void {
+    app(OwnershipRunner::class)->run(OwnershipCompany::query()->findOrFail(7), OwnershipActor::query()->firstOrFail(), function (): void {
+        $identityReads = static function (int $id, array $locales): int {
+            $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $assignment): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$assignment->attributes(), 'id' => $id]));
+            $version = app(TranslationResourceVersioner::class)->version($record);
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            try {
+                app(TranslationWriter::class)->sync($record, array_fill_keys($locales, ['name' => 'Name']), SystemActor::Background, $version);
+
+                return count(array_filter(
+                    array_column(DB::getQueryLog(), 'query'),
+                    static fn (string $sql): bool => str_replace(['"', '`'], '', $sql) === 'select id from translation_ownership_records where id = ? limit 1',
+                ));
+            } finally {
+                DB::disableQueryLog();
+            }
+        };
+
+        $one = $identityReads(71, ['en']);
+        $two = $identityReads(72, ['en', 'bg']);
+
+        expect(OwnershipRelatedTranslation::query()->count())->toBe(3)
+            ->and($one)->toBeGreaterThan(0)
+            ->and($two - $one)->toBe(1);
+    });
+});

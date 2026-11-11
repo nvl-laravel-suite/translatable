@@ -8,6 +8,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Context;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Translatable\Contracts\ContentLocalePreferenceResolver;
 use Nvl\Translatable\Enums\Locale;
 
 /**
@@ -27,10 +28,12 @@ final readonly class ContentLocale
     public function __construct(
         private LocaleCatalog $locales,
         private Repository $config,
+        private ContentLocalePreferenceResolver $preferences = new NullContentLocalePreferenceResolver,
     ) {}
 
     /**
-     * Return the current normalized content locale.
+     * Return the current normalized content locale: the explicitly set locale, then the
+     * application-owned preference, then the application locale, then the content default.
      */
     public function get(): string
     {
@@ -40,6 +43,12 @@ final readonly class ContentLocale
             return $this->locales->assertSupported($contextLocale);
         }
 
+        $preferredLocale = $this->preferred();
+
+        if ($preferredLocale !== null) {
+            return $preferredLocale;
+        }
+
         $applicationLocale = App::getLocale();
 
         if ($this->locales->supports($applicationLocale)) {
@@ -47,6 +56,18 @@ final readonly class ContentLocale
         }
 
         return $this->locales->default();
+    }
+
+    /**
+     * Return the application-owned content-locale preference when the catalogue supports it.
+     */
+    public function preferred(): ?string
+    {
+        $locale = $this->preferences->resolve();
+
+        return $locale !== null && $this->locales->supports($locale)
+            ? $this->locales->assertSupported($locale)
+            : null;
     }
 
     /**
@@ -107,18 +128,22 @@ final readonly class ContentLocale
 
     /**
      * Determine whether the current content locale is English.
+     *
+     * @deprecated Use is() with the locale of the configured catalogue.
      */
     public function isEnglish(): bool
     {
-        return $this->get() === Locale::EN->value;
+        return $this->locales->supports(Locale::EN->value) && $this->is(Locale::EN);
     }
 
     /**
      * Determine whether the current content locale is Bulgarian.
+     *
+     * @deprecated Use is() with the locale of the configured catalogue.
      */
     public function isBulgarian(): bool
     {
-        return $this->get() === Locale::BG->value;
+        return $this->locales->supports(Locale::BG->value) && $this->is(Locale::BG);
     }
 
     /**

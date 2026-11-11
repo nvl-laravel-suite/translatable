@@ -408,7 +408,7 @@ final readonly class TranslationResourceLocator
                     'Translation preload batches require persisted logical identities.',
                 );
             }
-            $encodedKey = $this->encodedIdentity($key);
+            $encodedKey = $this->encodedIdentity($this->ownership->canonicalKey($key));
             if (isset($suppliedByKey[$encodedKey])) {
                 throw new OwnershipViolation('Translation preload batches cannot contain duplicate owners.');
             }
@@ -428,7 +428,7 @@ final readonly class TranslationResourceLocator
             if (! is_int($key) && ! is_string($key)) {
                 throw new OwnershipViolation('Canonical translation owners require persisted keys.');
             }
-            $encodedKey = $this->encodedIdentity($key);
+            $encodedKey = $this->encodedIdentity($this->ownership->canonicalKey($key));
             if (isset($canonicalByKey[$encodedKey])) {
                 throw new OwnershipViolation('Canonical translation owner identities must be unique.');
             }
@@ -455,7 +455,8 @@ final readonly class TranslationResourceLocator
             }
             foreach ($identityColumns as $column) {
                 $value = $canonical->getRawOriginal($column);
-                if ($model->getRawOriginal($column) !== $value || $model->getAttribute($column) !== $value) {
+                if (! $this->ownership->sameIdentity($column, $value, $model->getRawOriginal($column))
+                    || ! $this->ownership->sameIdentity($column, $value, $model->getAttribute($column))) {
                     throw new OwnershipViolation('The supplied translation owner identity is stale or forged.');
                 }
             }

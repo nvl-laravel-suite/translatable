@@ -11,6 +11,7 @@ use Illuminate\Foundation\Application;
 use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Support\Locales\LocaleCatalogDiagnostics;
 use Nvl\Support\Providers\LocaleServiceProvider;
+use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Providers\TranslatableLocaleServiceProvider;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
@@ -47,6 +48,58 @@ it('derives new translation defaults from the host application without invented 
         ->and(app(LocaleCatalog::class)->default())->toBe('de-DE')
         ->and(app(LocaleCatalog::class)->fallbacks())->toBe(['fr']);
 });
+
+it('reads an explicit catalogue that excludes the application locales without explicit defaults', function (): void {
+    config([
+        'app.locale' => 'en',
+        'app.fallback_locale' => 'en',
+        'nvl-translatable.locales' => ['bg'],
+        'nvl-translatable.default_locale' => null,
+        'nvl-translatable.fallback_locales' => null,
+    ]);
+    app()->setLocale('en');
+    $registry = app(LocaleRegistry::class);
+    $definition = new RelatedTranslationDefinition(
+        translationModel: TestTranslatableModelTranslation::class,
+        foreignKey: 'article_id',
+        fields: ['title'],
+    );
+
+    expect($registry->fallbacks())->toBe([])
+        ->and($registry->default())->toBe('bg')
+        ->and($registry->chain('bg'))->toBe(['bg'])
+        ->and($definition->localeChain('bg'))->toBe(['bg'])
+        ->and(app(ContentLocale::class)->get())->toBe('bg');
+});
+
+it('keeps application locales that the explicit catalogue supports as derived defaults', function (): void {
+    config([
+        'app.locale' => 'de',
+        'app.fallback_locale' => 'bg',
+        'nvl-translatable.locales' => ['en', 'bg'],
+        'nvl-translatable.default_locale' => null,
+        'nvl-translatable.fallback_locales' => null,
+    ]);
+    $registry = app(LocaleRegistry::class);
+
+    expect($registry->fallbacks())->toBe(['bg'])
+        ->and($registry->default())->toBe('en')
+        ->and($registry->chain('en'))->toBe(['en', 'bg']);
+});
+
+it('still rejects explicitly configured defaults outside the catalogue', function (string $key, mixed $value): void {
+    config([
+        'nvl-translatable.locales' => ['bg'],
+        'nvl-translatable.default_locale' => null,
+        'nvl-translatable.fallback_locales' => null,
+        $key => $value,
+    ]);
+
+    expect(fn () => app(LocaleRegistry::class)->chain('bg'))->toThrow(InvalidLocaleException::class);
+})->with([
+    ['nvl-translatable.default_locale', 'en'],
+    ['nvl-translatable.fallback_locales', ['en']],
+]);
 
 it('keeps an explicitly bound host catalog across either locale provider order', function (): void {
     $host = new LocaleRegistryCatalog(new LocaleRegistry(new Repository([

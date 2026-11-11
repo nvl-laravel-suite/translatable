@@ -12,10 +12,12 @@ use Illuminate\Support\Facades\Schema;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Ownership\Exceptions\OwnershipSchemaNotReady;
 use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
+use Nvl\Support\Ownership\Services\OwnershipStorageProbes;
 use Nvl\Support\Ownership\Services\OwnershipStorageTables;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationSyncMode;
+use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
@@ -73,6 +75,29 @@ test('it writes and explicitly resolves translated attributes', function (): voi
     expect($model->translated('name', 'en'))->toBe('English Name')
         ->and($model->translated('name', 'bg'))->toBe('Bulgarian Name')
         ->and($model->getAttribute('name'))->toBeNull();
+});
+
+test('it admits loaded related rows when the driver returns integer keys as numeric strings', function (): void {
+    $model = TestTranslatableModel::create(['slug' => 'stringified']);
+    app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'English Name']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
+    $pdo = DB::connection()->getPdo();
+    $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, true);
+
+    try {
+        $loaded = TestTranslatableModel::query()->with('translations')->findOrFail($model->id);
+        $row = $loaded->getRelation('translations')->sole();
+
+        expect($row->getRawOriginal('test_translatable_model_id'))->toBe((string) $model->id)
+            ->and($loaded->getKey())->toBe($model->id)
+            ->and($loaded->translated('name', 'en'))->toBe('English Name')
+            ->and(app(RelatedTranslationStore::class)->rowsForOwners([$loaded])[0]->sole()->is($row))->toBeTrue();
+
+        $row->setRawAttributes([...$row->getAttributes(), 'test_translatable_model_id' => '0'.$model->id], true);
+
+        expect(fn () => $loaded->translated('name', 'en'))->toThrow(OwnershipViolation::class);
+    } finally {
+        $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, false);
+    }
 });
 
 test('it resolves missing rows and null fields through deterministic fallback', function (): void {
@@ -331,7 +356,7 @@ test('it rejects malformed write-map shapes before changing translation rows', f
         ->and($model->translations()->count())->toBe(0);
 });
 
-test('it eager loads translated rows in bounded queries while freshly admitting each loaded read', function (): void {
+test('it eager loads translated rows in bounded queries without probing storage again for each loaded read', function (): void {
     $writer = app(TranslationWriter::class);
     $create = static function (int $index) use ($writer): void {
         $model = TestTranslatableModel::create(['slug' => "slug-{$index}"]);
@@ -374,11 +399,11 @@ test('it eager loads translated rows in bounded queries while freshly admitting 
         ->and($populated['names'][0])->toBe('Name 1')
         ->and($single['translation_reads'])->toBe(1)
         ->and($populated['translation_reads'])->toBe($single['translation_reads'])
-        ->and($populated['admission_probes'])->toBeGreaterThanOrEqual(25)
+        ->and($populated['admission_probes'])->toBe(0)
         ->and($populated['total'] - $single['total'])->toBeLessThanOrEqual(24 * 3);
 });
 
-test('it admits loaded related storage once per read and freshly rejects later adoption', function (): void {
+test('it admits loaded related storage once per request and rejects later adoption in the next request', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'read-admission']);
     app(TranslationWriter::class)->sync($model, ['en' => ['name' => 'Name']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($model));
     $model->load('translations');
@@ -388,7 +413,7 @@ test('it admits loaded related storage once per read and freshly rejects later a
     $catalog = DB::getDriverName() === 'sqlite' ? 'sqlite_master' : 'information_schema.tables';
     $probes = array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $query): bool => str_contains($query, $catalog));
     DB::disableQueryLog();
-    expect($probes)->toHaveCount(1);
+    expect($probes)->toHaveCount(0);
 
     Schema::create(OwnershipStorageTables::Markers, static function (Blueprint $table): void {
         $table->string('resource');
@@ -396,6 +421,7 @@ test('it admits loaded related storage once per read and freshly rejects later a
     });
     try {
         DB::table(OwnershipStorageTables::Markers)->insert(['resource' => 'tests.claimed', 'physical_table' => $model->getTable()]);
+        app(OwnershipStorageProbes::class)->forget();
         expect(fn () => $model->translations)->toThrow(OwnershipSchemaNotReady::class);
     } finally {
         Schema::dropIfExists(OwnershipStorageTables::Markers);
@@ -539,7 +565,7 @@ test('it resolves all fields from one admitted translation collection', function
     DB::enableQueryLog();
     try {
         expect($owner->getTranslatedAttributes('en'))->toBe(['name' => 'Name', 'description' => 'Description']);
-        expect(DB::getQueryLog())->toHaveCount(4);
+        expect(DB::getQueryLog())->toHaveCount(1);
     } finally {
         DB::disableQueryLog();
     }
@@ -549,4 +575,20 @@ test('exposes one typed translation definition API without compatibility adapter
     expect(class_exists('Nvl\\Translatable\\TranslatableOptions'))->toBeFalse()
         ->and(class_exists('Nvl\\Translatable\\SelfTranslatableOptions'))->toBeFalse()
         ->and(method_exists(TestTranslatableModel::class, 'translationOptions'))->toBeFalse();
+});
+
+test('related store writes normalize the locale and reject undeclared locales and fields', function (): void {
+    $model = TestTranslatableModel::create(['slug' => 'store-validation']);
+    $store = app(RelatedTranslationStore::class);
+    $definition = $model->translationDefinition();
+    $upsert = static fn (string $locale, array $attributes): mixed => DB::transaction(
+        static fn () => $store->upsert($model, $definition, $locale, $attributes),
+    );
+
+    expect($upsert('en_gb', ['name' => 'British'])->getAttribute('locale'))->toBe('en-GB')
+        ->and(fn () => $upsert('fr', ['name' => 'French']))->toThrow(InvalidLocaleException::class)
+        ->and(fn () => $upsert('not a locale', ['name' => 'Broken']))->toThrow(InvalidLocaleException::class)
+        ->and(fn () => $upsert('en', ['name' => 'Name', 'id' => 999]))->toThrow(InvalidTranslatableFieldException::class)
+        ->and(fn () => $upsert('en', ['test_translatable_model_id' => 999]))->toThrow(InvalidTranslatableFieldException::class)
+        ->and(TestTranslatableModelTranslation::query()->pluck('locale')->all())->toBe(['en-GB']);
 });

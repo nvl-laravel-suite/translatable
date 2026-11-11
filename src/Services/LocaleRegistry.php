@@ -15,17 +15,24 @@ use Nvl\Translatable\Support\LocaleCode;
  *
  * @api
  */
-final readonly class LocaleRegistry
+final class LocaleRegistry
 {
+    /**
+     * The last raw catalogue and its normalized locales.
+     *
+     * @var array{raw: array<array-key, mixed>, locales: list<string>}|null
+     */
+    private ?array $normalized = null;
+
     /**
      * Create the locale registry.
      */
     public function __construct(
-        private Repository $config,
+        private readonly Repository $config,
     ) {}
 
     /**
-     * Return every configured supported locale.
+     * Return every configured supported locale, normalizing the catalogue again only when it changes.
      *
      * @return list<string>
      */
@@ -38,6 +45,10 @@ final readonly class LocaleRegistry
             throw new TranslatableException(
                 'The nvl-translatable.locales configuration must contain at least one locale.',
             );
+        }
+
+        if ($this->normalized !== null && $this->normalized['raw'] === $configured) {
+            return $this->normalized['locales'];
         }
 
         $locales = [];
@@ -60,17 +71,20 @@ final readonly class LocaleRegistry
             $locales[] = $normalized;
         }
 
+        $this->normalized = ['raw' => $configured, 'locales' => $locales];
+
         return $locales;
     }
 
     /**
-     * Return every configured fallback locale.
+     * Return every configured fallback locale, or the application fallbacks this catalogue supports.
      *
      * @return list<string>
      */
     public function fallbacks(): array
     {
-        $configured = $this->config->get('nvl-translatable.fallback_locales')
+        $explicit = $this->config->get('nvl-translatable.fallback_locales');
+        $configured = $explicit
             ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->fallbacks();
 
         if (! is_array($configured)) {
@@ -88,6 +102,10 @@ final readonly class LocaleRegistry
                 );
             }
 
+            if ($explicit === null && ! $this->supports($locale)) {
+                continue;
+            }
+
             $normalized = $this->assertSupported($locale);
 
             if (in_array($normalized, $fallbacks, true)) {
@@ -103,12 +121,18 @@ final readonly class LocaleRegistry
     }
 
     /**
-     * Return the configured default content locale.
+     * Return the configured default content locale, or the application default when this catalogue
+     * supports it and the first supported locale otherwise.
      */
     public function default(): string
     {
-        $configured = $this->config->get('nvl-translatable.default_locale')
-            ?? (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->default();
+        $configured = $this->config->get('nvl-translatable.default_locale');
+
+        if ($configured === null) {
+            $derived = (new ApplicationLocaleCatalog($this->config, allowLegacyCatalog: false))->default();
+
+            return $this->supports($derived) ? $this->assertSupported($derived) : $this->supported()[0];
+        }
 
         if (! is_string($configured)) {
             throw new TranslatableException(

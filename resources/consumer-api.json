@@ -449,6 +449,7 @@
                 "isEnglish",
                 "isSet",
                 "options",
+                "preferred",
                 "reset",
                 "set",
                 "setFromString",

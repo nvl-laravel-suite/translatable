@@ -114,12 +114,14 @@ For ordinary filtered resources, summaries compute the logical total and exact l
 
 The host chooses how query, stored preference, session, and cookie values select a request locale. A complete consumer-owned middleware example and its precedence/restoration tests live in `tests/Fixtures/Consumer/HandleContentLocale.php` in the source checkout and `tests/Feature/HandleContentLocaleMiddlewareTest.php` in the source checkout. Copy or adapt it into the application's HTTP layer and keep its `consumer.content_locale.*` settings in the application. Translatable publishes no middleware class or HTTP settings and has no direct Symfony HTTP requirement.
 
+Bind `Nvl\Translatable\Contracts\ContentLocalePreferenceResolver` to supply a stored preference without that middleware. When no content locale was set explicitly, `ContentLocale::get()` and model reads use a supported preference before the application locale. The resolver runs on every such read, so keep it cheap and free of side effects. Direct `RelatedTranslationStore`/`SelfTranslationStore` writes validate the locale and accept only declared translated fields.
+
 ## Locale and diagnostics
 
 ContentLocale is scoped to request/job context. Explicit locale arguments override it. Fallback returns the configured candidate when a locale or value is missing; callers can inspect TranslationResolution to distinguish missing, null, and fallback. Native Ownership context restoration also restores the content locale.
 
 Run php artisan nvl:translatable:doctor --strict to inspect registered resources and schema. Use php artisan nvl:translatable:gather --json for a command-line catalog. The package tests cover related and grouped storage, revisions, fallback, native owner isolation, adoption, queue restoration, and malformed envelopes.
 
-See [UPGRADING.md](UPGRADING.md) for the 6.x contract change and [SECURITY.md](SECURITY.md) for admission requirements.
+See [UPGRADING.md](UPGRADING.md) for the 7.x contract change and [SECURITY.md](SECURITY.md) for admission requirements.
 
 Shared [service contracts, model extensions and composition](https://github.com/nvl-laravel-suite/laravel-suite/blob/main/docs/consumer-api.md) apply alongside the package-specific rules above.

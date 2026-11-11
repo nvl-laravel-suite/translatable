@@ -529,7 +529,7 @@ public readonly array $sharedFields
 final readonly class Nvl\Translatable\Services\ContentLocale
 public const string CONTEXT_KEY="nvl.content_locale"
 public const string EXPLICIT_CONTEXT_KEY="nvl.content_locale.explicit"
-public function __construct(Nvl\Support\Contracts\LocaleCatalog $locales, Illuminate\Contracts\Config\Repository $config): mixed
+public function __construct(Nvl\Support\Contracts\LocaleCatalog $locales, Illuminate\Contracts\Config\Repository $config, Nvl\Translatable\Contracts\ContentLocalePreferenceResolver $preferences=new \Nvl\Translatable\Services\NullContentLocalePreferenceResolver()): mixed
 public function available(): array
 @return list<string>
 public function get(): string
@@ -540,6 +540,7 @@ public function isEnglish(): bool
 public function isSet(): bool
 public function options(): array
 @return list<array{value: string, internationalLabel: string, nativeLabel: string, active: bool}>
+public function preferred(): ?string
 public function reset(): self
 public function set(Nvl\Translatable\Enums\Locale|string $locale): self
 public function setFromString(string $locale): bool
@@ -549,7 +550,7 @@ public function withLocale(Nvl\Translatable\Enums\Locale|string $locale, callabl
 ## Nvl\Translatable\Services\LocaleRegistry
 
 ```text
-final readonly class Nvl\Translatable\Services\LocaleRegistry
+final class Nvl\Translatable\Services\LocaleRegistry
 public function __construct(Illuminate\Contracts\Config\Repository $config): mixed
 public function assertSupported(string $locale): string
 @throws InvalidLocaleException

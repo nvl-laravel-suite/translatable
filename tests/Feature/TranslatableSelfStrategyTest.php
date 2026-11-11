@@ -18,6 +18,7 @@ use Nvl\Translatable\Enums\TranslationStorageStrategy;
 use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
 use Nvl\Translatable\Events\TranslationResourceSynced;
+use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
@@ -559,4 +560,19 @@ test('the doctor rejects non-string locale columns', function (): void {
     expect($report->isHealthy())->toBeFalse()
         ->and(implode(' ', $report->errors))
         ->toContain('locale column [test_self_translatable_models.locale] must use a string type');
+});
+
+test('self store writes normalize the locale and reject undeclared locales and fields', function (): void {
+    $model = TestSelfTranslatableModel::create(['entry_key' => 'store-validation', 'locale' => 'en', 'name' => 'English']);
+    $store = app(SelfTranslationStore::class);
+    $definition = $model->translationDefinition();
+    $upsert = static fn (string $locale, array $attributes): mixed => DB::transaction(
+        static fn () => $store->upsert($model, $definition, $locale, $attributes),
+    );
+
+    expect($upsert('en_gb', ['name' => 'British'])->getAttribute('locale'))->toBe('en-GB')
+        ->and(fn () => $upsert('fr', ['name' => 'French']))->toThrow(InvalidLocaleException::class)
+        ->and(fn () => $upsert('bg', ['name' => 'Name', 'id' => 999]))->toThrow(InvalidTranslatableFieldException::class)
+        ->and(fn () => $upsert('bg', ['entry_key' => 'forged']))->toThrow(InvalidTranslatableFieldException::class)
+        ->and(TestSelfTranslatableModel::query()->orderBy('locale')->pluck('locale')->all())->toBe(['en', 'en-GB']);
 });

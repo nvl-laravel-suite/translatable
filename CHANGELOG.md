@@ -5,6 +5,16 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- An explicit `nvl-translatable.locales` catalogue without explicit `default_locale`/`fallback_locales` no longer throws `InvalidLocaleException` on every read when the application locales are outside it: derived fallbacks are limited to supported locales and the derived default falls back to the first supported locale. Explicitly configured values are still validated strictly.
+- Loaded related translation rows are admitted when the driver returns an integer owner key as a numeric string (for example with `PDO::ATTR_STRINGIFY_FETCHES`), matching the self-row store.
+- Owned related and self-row writes, batch preloads and version tokens also accept an integer owner or group key that the driver returns as a numeric string; previously a freshly created owner failed with "The canonical translation owner identity has changed." or a stale-version refusal on such drivers. Version tokens of resources whose string key is a canonical integer change once.
+- `RelatedTranslationStore::upsert()` and `SelfTranslationStore::upsert()` now normalize and validate the locale against the definition and reject attribute keys that are not declared translated fields (`InvalidLocaleException`, `InvalidTranslatableFieldException`) instead of writing them. Structural keys such as `locale`, the group or owner key and ownership columns were already overwritten by server-derived values and are now refused.
+- A bound `ContentLocalePreferenceResolver` is now consulted: `ContentLocale::get()`, the new `ContentLocale::preferred()` and model reads without an explicit locale use a supported application-owned preference after an explicitly set content locale and before the application locale. The default binding returns no preference, so behavior is unchanged without a host resolver.
+- `ContentLocale::isEnglish()` and `isBulgarian()` are deprecated in favour of `is()` and no longer assume those locales are part of the configured catalogue.
+- A related translation write admits its locked owner identity once per locale batch, and unowned relation scoping probes owner and translation storage in one batch; the locale registry normalizes the configured catalogue only when it changes.
+
 ## [7.0.0] - 2026-11-03
 
 - Adopt the reviewed NVL 7 family for PHP 8.4+ and Laravel 13, with compatible required and optional NVL peers. Review the package upgrade guide before deployment.

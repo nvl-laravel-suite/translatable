@@ -44,7 +44,7 @@ final readonly class RelatedTranslationStore
         $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
 
-        return $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
+        return $this->upsertForOwner($canonicalOwner, $definition, $this->ownerIdentity($canonicalOwner, $definition), $locale, $attributes);
     }
 
     /**
@@ -58,8 +58,9 @@ final readonly class RelatedTranslationStore
     {
         $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
+        $ownerIdentity = $this->ownerIdentity($canonicalOwner, $definition);
         foreach ($translations as $locale => $attributes) {
-            $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
+            $this->upsertForOwner($canonicalOwner, $definition, $ownerIdentity, $locale, $attributes);
         }
     }
 
@@ -188,7 +189,7 @@ final readonly class RelatedTranslationStore
             $key = $owner->getConnection()->table($owner->getTable())
                 ->where($owner->getKeyName(), $owner->getRawOriginal($owner->getKeyName()))
                 ->value($definition->ownerKey);
-            if ($key !== $owner->getRawOriginal($definition->ownerKey)) {
+            if (! $this->ownership->sameIdentity($definition->ownerKey, $key, $owner->getRawOriginal($definition->ownerKey))) {
                 throw $this->ownership->violation('The canonical translation owner identity has changed.');
             }
         }
@@ -239,9 +240,9 @@ final readonly class RelatedTranslationStore
             throw $this->ownership->violation('Translation relations require the same actual source connection.');
         }
         if ($definition->ownershipResource === null) {
-            $this->ownership->query($owner->newQuery(), $definition);
+            $this->ownership->assertUnownedModels([$owner, $query->getModel()]);
 
-            return $this->ownership->query($query, $definition);
+            return $query;
         }
         $canonical = new $definition->translationModel;
         if ($query->getModel()::class !== $canonical::class || $query->getModel()->getTable() !== $canonical->getTable()
@@ -296,7 +297,8 @@ final readonly class RelatedTranslationStore
                 throw $this->ownership->violation('Loaded translations do not use canonical related storage.');
             }
             foreach ($identity as $column => $value) {
-                if ($row->getAttribute($column) !== $value || $row->getRawOriginal($column) !== $value) {
+                if (! $this->ownership->sameIdentity($column, $row->getAttribute($column), $value)
+                    || ! $this->ownership->sameIdentity($column, $row->getRawOriginal($column), $value)) {
                     throw $this->ownership->violation('Loaded translations do not belong to the canonical owner.');
                 }
             }
@@ -304,15 +306,20 @@ final readonly class RelatedTranslationStore
     }
 
     /**
-     * Write one locale while this store's aggregate operation owns the parent lock.
+     * Write one declared locale and field set while this store's aggregate operation owns the parent lock.
      *
+     * @param  array<string, mixed>  $ownerIdentity  The locked owner's identity, admitted once for the operation.
      * @param  array<string, mixed>  $attributes
      */
-    private function upsertForOwner(Model&TranslatableModel $canonicalOwner, RelatedTranslationDefinition $definition, string $locale, array $attributes): Model
+    private function upsertForOwner(Model&TranslatableModel $canonicalOwner, RelatedTranslationDefinition $definition, array $ownerIdentity, string $locale, array $attributes): Model
     {
+        $locale = $definition->assertLocale($locale);
+        foreach (array_keys($attributes) as $field) {
+            $definition->assertTranslatableField($field);
+        }
         $relation = $canonicalOwner->translations();
         $identity = [
-            ...$this->ownerIdentity($canonicalOwner, $definition),
+            ...$ownerIdentity,
             $definition->localeKey => $locale,
         ];
         $translation = Model::unguarded(

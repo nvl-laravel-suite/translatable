@@ -147,8 +147,10 @@ trait Translatable
         }
 
         $contextLocale = Context::get(ContentLocale::CONTEXT_KEY);
+        $preferredLocale = is_string($contextLocale) ? null : app(ContentLocale::class)->preferred();
         $candidates = [
             ...(is_string($contextLocale) ? [$contextLocale] : []),
+            ...($preferredLocale !== null ? [$preferredLocale] : []),
             App::getLocale(),
             ...$options->configuredFallbackLocales(),
             ...$options->supportedLocales(),

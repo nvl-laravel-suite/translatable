@@ -22,6 +22,7 @@ use Nvl\Support\Ownership\Exceptions\OwnershipSchemaNotReady;
 use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
 use Nvl\Support\Ownership\Services\OwnershipConstraintInspector;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
+use Nvl\Support\Ownership\Services\OwnershipStorageProbes;
 use Nvl\Support\Ownership\ValueObjects\OwnershipResourceDefinition;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Services\TranslationDoctor;
@@ -35,6 +36,7 @@ use Nvl\Translatable\Tests\Support\OwnershipActor;
 use Nvl\Translatable\Tests\Support\TenantArticle;
 use Nvl\Translatable\Tests\Support\TenantArticleTranslation;
 use Nvl\Translatable\Tests\Support\TenantSelfEntry;
+use Nvl\Translatable\Tests\Support\TenantTranslationOwner;
 use Nvl\Translatable\Tests\Support\TenantTranslationScenario;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 
@@ -225,47 +227,51 @@ it('keeps central preload and version query counts constant as a page grows', fu
         $s->entry($s::A, 'entry-'.$index, 'en', 'Entry '.$index);
     }
 
-    $s->run($s::A, function (): void {
+    // Each measurement uses its own owner context; reading the page verifies the resource once, so only the preload and version queries are logged.
+    $measure = static fn (bool $wholePage): array => $s->run($s::A, function () use ($wholePage): array {
         $resource = app(TranslationResourceRegistry::class)->get('test.entries');
         $locator = app(TranslationResourceLocator::class);
         $versioner = app(TranslationResourceVersioner::class);
         $records = $locator->query($resource)->get();
         $connection = $records->firstOrFail()->getConnection();
+        $selected = $wholePage ? $records : new Collection([$records->firstOrFail()]);
         $connection->enableQueryLog();
         $connection->flushQueryLog();
-
-        $single = new Collection([$records->firstOrFail()]);
-        $locator->loadTranslations($single);
-        $single->each(static fn ($record): string => $versioner->version($record));
-        $singleQueries = $connection->getQueryLog();
-        $singleCount = count($singleQueries);
+        $locator->loadTranslations($selected);
+        $selected->each(static fn ($record): string => $versioner->version($record));
+        $cold = $connection->getQueryLog();
         $connection->flushQueryLog();
-
-        $locator->loadTranslations($records);
-        $records->each(static fn ($record): string => $versioner->version($record));
-        $pageQueries = $connection->getQueryLog();
-        $pageCount = count($pageQueries);
+        $locator->loadTranslations($selected);
+        $selected->each(static fn ($record): string => $versioner->version($record));
+        $warm = $connection->getQueryLog();
         $connection->disableQueryLog();
 
-        expect($pageCount)->toBe($singleCount)
-            ->and($pageCount)->toBe(82);
-        foreach ([$singleQueries, $pageQueries] as $queries) {
-            $sql = array_column($queries, 'query');
-            expect(count(array_filter($sql, static fn (string $query): bool => str_contains($query, 'sqlite_master') && str_contains($query, 'nvl_ownership_stores'))))->toBe(20)
-                ->and(count(array_filter($sql, static fn (string $query): bool => str_contains($query, 'sqlite_master') && str_contains($query, "type = 'trigger'"))))->toBe(4)
-                ->and(count(array_filter($sql, static fn (string $query): bool => str_starts_with($query, 'select * from "tenant_test_entries"'))))->toBe(2);
-        }
+        return [$cold, $warm];
     });
+    [$singleQueries, $singleRepeat] = $measure(false);
+    [$pageQueries, $pageRepeat] = $measure(true);
+
+    expect(count($pageQueries))->toBe(count($singleQueries))
+        ->and(count($pageQueries))->toBe(2)
+        ->and(count($pageRepeat))->toBe(count($singleRepeat))
+        ->and(count($pageRepeat))->toBe(2);
+    foreach ([$singleQueries, $pageQueries] as $queries) {
+        $sql = array_column($queries, 'query');
+        expect(count(array_filter($sql, static fn (string $query): bool => str_contains($query, 'sqlite_master') && str_contains($query, 'nvl_ownership_stores'))))->toBe(0)
+            ->and(count(array_filter($sql, static fn (string $query): bool => str_contains($query, 'sqlite_master') && str_contains($query, "type = 'trigger'"))))->toBe(0)
+            ->and(count(array_filter($sql, static fn (string $query): bool => str_starts_with($query, 'select * from "tenant_test_entries"'))))->toBe(2);
+    }
 });
 
-it('rechecks live owner, store, generation, and trigger state on a consecutive preload', function (string $change, string $exception): void {
+it('rechecks live owner, store, generation, and trigger state in the next owner context', function (string $change, string $exception): void {
     $s = TenantTranslationScenario::install();
     $s->entry($s::A, 'same', 'en', 'A only');
+    $locator = app(TranslationResourceLocator::class);
+    $owner = TenantTranslationOwner::findOrFail($s::A);
+    $actor = OwnershipActor::firstOrFail();
 
-    $s->run($s::A, function () use ($change, $exception): void {
-        $resource = app(TranslationResourceRegistry::class)->get('test.entries');
-        $locator = app(TranslationResourceLocator::class);
-        $records = $locator->query($resource)->get();
+    $records = $s->run($s::A, function () use ($change, $locator): Collection {
+        $records = $locator->query(app(TranslationResourceRegistry::class)->get('test.entries'))->get();
         $locator->loadTranslations($records);
         $connection = $records->firstOrFail()->getConnection();
 
@@ -283,13 +289,16 @@ it('rechecks live owner, store, generation, and trigger state on a consecutive p
             })(),
         };
 
-        $connection->enableQueryLog();
-        $connection->flushQueryLog();
-        expect(fn () => $locator->loadTranslations($records))->toThrow($exception);
-        $queries = array_column($connection->getQueryLog(), 'query');
-        $connection->disableQueryLog();
-        expect(count(array_filter($queries, static fn (string $query): bool => str_starts_with($query, 'select * from "tenant_test_entries"'))))->toBe(0);
+        return $records;
     });
+
+    $connection = $records->firstOrFail()->getConnection();
+    $connection->enableQueryLog();
+    $connection->flushQueryLog();
+    expect(fn () => app(OwnershipRunner::class)->run($owner, $actor, fn () => $locator->loadTranslations($records)))->toThrow($exception);
+    $queries = array_column($connection->getQueryLog(), 'query');
+    $connection->disableQueryLog();
+    expect(count(array_filter($queries, static fn (string $query): bool => str_starts_with($query, 'select * from "tenant_test_entries"'))))->toBe(0);
 })->with([
     'store UUID changed' => ['store', OwnershipSchemaNotReady::class],
     'marker generation changed' => ['generation', OwnershipSchemaNotReady::class],
@@ -297,7 +306,7 @@ it('rechecks live owner, store, generation, and trigger state on a consecutive p
     'required trigger dropped' => ['trigger', OwnershipSchemaNotReady::class],
 ]);
 
-it('rechecks unowned eager reads after either physical table gains an ownership marker', function (string $table, bool $hasTranslation): void {
+it('rechecks unowned eager reads in the next request after either physical table gains an ownership marker', function (string $table, bool $hasTranslation): void {
     TenantTranslationScenario::install();
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
     Schema::create('test_translatable_models_i18n', static function (Blueprint $table): void {
@@ -325,6 +334,7 @@ it('rechecks unowned eager reads after either physical table gains an ownership 
         'created_at' => now(),
         'updated_at' => now(),
     ]);
+    app(OwnershipStorageProbes::class)->forget();
 
     expect(fn () => $loaded->translated('name', 'en'))->toThrow(OwnershipSchemaNotReady::class)
         ->and(fn () => $loaded->translations)->toThrow(OwnershipSchemaNotReady::class);

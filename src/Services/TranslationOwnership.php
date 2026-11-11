@@ -273,9 +273,15 @@ final readonly class TranslationOwnership
 
         return hash('sha256', json_encode([
             $definition->ownershipResource, $owner->getConnection()->getName(), $owner->getTable(),
-            $attributes, $owner->getRawOriginal($column),
+            $attributes, $this->canonicalKey($owner->getRawOriginal($column)),
             $snapshot->owner?->toArray(), $snapshot->generations,
         ], JSON_THROW_ON_ERROR));
+    }
+
+    /** Hash an integer key alike whether the driver returned it as an integer or its canonical numeric string. */
+    public function canonicalKey(mixed $key): mixed
+    {
+        return is_string($key) && (string) (int) $key === $key ? (int) $key : $key;
     }
 
     /** Resolve shared self-row assignment once for a canonical page.
@@ -334,7 +340,7 @@ final readonly class TranslationOwnership
     }
 
     /** Compare native PDO scalar representations without collapsing distinct textual keys. */
-    private function sameIdentity(string $field, mixed $persisted, mixed $original): bool
+    public function sameIdentity(string $field, mixed $persisted, mixed $original): bool
     {
         if ($persisted === $original) {
             return true;

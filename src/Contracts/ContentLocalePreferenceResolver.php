@@ -7,6 +7,9 @@ namespace Nvl\Translatable\Contracts;
 /**
  * Resolves an optional content-locale preference from an application-owned source.
  *
+ * ContentLocale consults the bound resolver on every read that has no explicitly set
+ * locale, so an implementation must be cheap and free of side effects.
+ *
  * @api
  */
 interface ContentLocalePreferenceResolver

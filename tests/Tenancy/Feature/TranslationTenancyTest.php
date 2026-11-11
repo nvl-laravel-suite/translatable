@@ -187,33 +187,27 @@ it('rejects structural ownership keys in writer payloads', function (string $col
     )))->toThrow(InvalidTranslatableFieldException::class);
 })->with(['tenant_id', 'ownership_key', 'entry_key', 'locale']);
 
-it('assigns server-derived identity last in package store write paths', function (): void {
+it('rejects forged structural attributes and assigns server-derived identity in package store write paths', function (): void {
     $s = TenantTranslationScenario::install();
     $selfOwner = $s->entry($s::A, 'same', 'en', 'A');
     $relatedOwner = $s->article($s::A, 'article-a', []);
     $otherOwner = $s->article($s::B, 'article-b', []);
+    $selfUpsert = fn (array $attributes) => $s->run($s::A, fn () => $selfOwner->getConnection()->transaction(
+        fn () => app(SelfTranslationStore::class)->upsert($selfOwner, $selfOwner->translationDefinition(), 'bg', $attributes),
+    ));
+    $relatedUpsert = fn (array $attributes) => $s->run($s::A, fn () => $relatedOwner->getConnection()->transaction(
+        fn () => app(RelatedTranslationStore::class)->upsert($relatedOwner, $relatedOwner->translationDefinition(), 'bg', $attributes),
+    ));
 
-    $self = $s->run($s::A, fn () => $selfOwner->getConnection()->transaction(
-        fn () => app(SelfTranslationStore::class)->upsert(
-            $selfOwner,
-            $selfOwner->translationDefinition(),
-            'bg',
-            ['name' => 'A bg', 'tenant_id' => $s::B, 'owner_scope_key' => 'forged', 'entry_key' => 'forged', 'locale' => 'fr'],
-        ),
-    ));
-    $related = $s->run($s::A, fn () => $relatedOwner->getConnection()->transaction(
-        fn () => app(RelatedTranslationStore::class)->upsert(
-            $relatedOwner,
-            $relatedOwner->translationDefinition(),
-            'bg',
-            [
-                'name' => 'Article bg',
-                'owner_scope_key' => 'forged',
-                'article_id' => $otherOwner->id,
-                'locale' => 'fr',
-            ],
-        ),
-    ));
+    foreach ([['tenant_id' => $s::B], ['owner_scope_key' => 'forged'], ['entry_key' => 'forged'], ['locale' => 'fr']] as $forged) {
+        expect(fn () => $selfUpsert(['name' => 'A bg', ...$forged]))->toThrow(InvalidTranslatableFieldException::class);
+    }
+    foreach ([['owner_scope_key' => 'forged'], ['article_id' => $otherOwner->id], ['locale' => 'fr']] as $forged) {
+        expect(fn () => $relatedUpsert(['name' => 'Article bg', ...$forged]))->toThrow(InvalidTranslatableFieldException::class);
+    }
+
+    $self = $selfUpsert(['name' => 'A bg']);
+    $related = $relatedUpsert(['name' => 'Article bg']);
 
     expect($self->only(['tenant_id', 'entry_key', 'locale']))->toBe([
         'tenant_id' => $s::A,
