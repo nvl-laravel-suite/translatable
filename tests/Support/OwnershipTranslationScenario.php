@@ -14,7 +14,7 @@ use Nvl\Support\Ownership\ValueObjects\OwnershipResourceDefinition;
 /** Creates real native schemas and registers the same concrete graph that consumers declare. */
 final readonly class OwnershipTranslationScenario
 {
-    public static function install(Container $app): void
+    public static function createTables(): void
     {
         $schema = DB::getSchemaBuilder();
         foreach (['translation_ownership_records', 'translation_ownership_self_records'] as $name) {
@@ -36,6 +36,10 @@ final readonly class OwnershipTranslationScenario
             $table->string('name')->nullable();
             $table->unique(['record_id', 'locale']);
         });
+    }
+
+    public static function register(Container $app): void
+    {
         foreach (['fixture.records' => OwnershipRelatedRecord::class, 'fixture.self' => OwnershipSelfRecord::class, 'fixture.rows' => OwnershipRelatedTranslation::class] as $key => $class) {
             $app->make(OwnershipResourceRegistry::class)->register(new OwnershipResourceDefinition($key, 'fixture', $class, $class::ownershipDefinition(), parentResource: $key === 'fixture.rows' ? 'fixture.records' : null));
         }

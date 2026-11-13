@@ -55,7 +55,14 @@ final readonly class TranslationDoctor
 
         foreach ($this->resources->all() as $resource) {
             try {
-                $this->inspectResource($resource, $errors);
+                $connection = $resource->newModel()->getConnection();
+                if ($connection->transactionLevel() > 0) {
+                    $connection->transaction(function () use ($resource, &$errors): void {
+                        $this->inspectResource($resource, $errors);
+                    });
+                } else {
+                    $this->inspectResource($resource, $errors);
+                }
             } catch (Throwable $exception) {
                 $errors[] = "Resource [{$resource->key}] inspection failed: {$exception->getMessage()}";
             }
@@ -310,8 +317,9 @@ final readonly class TranslationDoctor
         $translationSchema = $translationModel->getConnection()->getSchemaBuilder();
         $translationTable = $translationModel->getTable();
         $foreignKey = $definition->foreignKey($model->getTable());
+        $sameConnection = $model->getConnection() === $translationModel->getConnection();
 
-        if ($model->getConnection() !== $translationModel->getConnection()) {
+        if (! $sameConnection) {
             $errors[] = "Resource [{$resource->key}] owner and translation models use different actual connections.";
         }
         $this->inspectRelatedOwnership($resource, $model, $translationModel, $definition, $errors);
@@ -363,28 +371,38 @@ final readonly class TranslationDoctor
             $definition->localeKey,
             $errors,
         );
-        $this->assertUniqueIndex(
-            $resource,
-            $translationSchema,
-            $translationTable,
-            [...$partitionColumns, $foreignKey, $definition->localeKey],
-            $errors,
-        );
         $foreignKeys = $translationSchema->getForeignKeys($translationTable);
         $nativePartition = $partitionColumns === ['owner_scope_key'] && $definition->ownershipResource !== null;
         $foreignColumns = $nativePartition ? [$foreignKey] : [...$partitionColumns, $foreignKey];
         $ownerColumns = $nativePartition ? [$definition->ownerKey] : [...$partitionColumns, $definition->ownerKey];
+        [$ownerNamespace, $ownerTable] = $ownerSchema->parseSchemaAndTable($model->getTable());
+        $ownerConnection = $ownerSchema->getConnection();
+        $ownerNamespace ??= $ownerConnection->getDriverName() === 'pgsql'
+            ? $ownerConnection->scalar('select current_schema()', [], false)
+            : $ownerSchema->getCurrentSchemaName();
+        $ownerTable = $ownerConnection->getTablePrefix().$ownerTable;
         $matchingForeignKey = collect($foreignKeys)->first(
             static fn (array $key): bool => $key['columns'] === $foreignColumns
-                && $key['foreign_table'] === $model->getTable()
+                && $key['foreign_table'] === $ownerTable
+                && $key['foreign_schema'] === $ownerNamespace
                 && $key['foreign_columns'] === $ownerColumns,
         );
+        $cascades = is_array($matchingForeignKey) && mb_strtolower((string) $matchingForeignKey['on_delete']) === 'cascade';
+
+        $localeColumns = [$foreignKey, $definition->localeKey];
+        $scopedColumns = [...$partitionColumns, ...$localeColumns];
+        if (! $this->hasUniqueIndex($translationSchema, $translationTable, $scopedColumns)
+            && ! ($nativePartition && $sameConnection && $cascades
+                && $this->hasUniqueIndex($translationSchema, $translationTable, $localeColumns, requireComplete: true)
+                && $this->hasUniqueIndex($ownerSchema, $model->getTable(), [$definition->ownerKey], requireComplete: true))) {
+            $this->reportMissingUniqueIndex($resource, $translationTable, $scopedColumns, $errors);
+        }
 
         if (! is_array($matchingForeignKey)) {
             $errors[] = "Resource [{$resource->key}] table [{$translationTable}] lacks its owner foreign key and requires composite columns (["
                 .implode(', ', $foreignColumns)."] -> [{$model->getTable()}."
                 .implode(', ', $ownerColumns).']).';
-        } elseif (mb_strtolower((string) $matchingForeignKey['on_delete']) !== 'cascade') {
+        } elseif (! $cascades) {
             $errors[] = "Resource [{$resource->key}] owner foreign key must cascade on delete.";
         }
     }
@@ -622,22 +640,67 @@ final readonly class TranslationDoctor
         array $columns,
         array &$errors,
     ): void {
-        $expected = $columns;
-        sort($expected);
-        $hasUnique = collect($schema->getIndexes($table))->contains(
-            static function (array $index) use ($expected): bool {
-                $actual = $index['columns'];
-                sort($actual);
-
-                return $index['unique'] && $actual === $expected;
-            },
-        );
-
-        if (! $hasUnique) {
-            $index = $table.'_'.implode('_', $columns).'_unique';
-            $errors[] = "Resource [{$resource->key}] table [{$table}] requires a unique index [{$index}] on ["
-                .implode(', ', $columns).'].';
+        if (! $this->hasUniqueIndex($schema, $table, $columns)) {
+            $this->reportMissingUniqueIndex($resource, $table, $columns, $errors);
         }
+    }
+
+    /**
+     * Match the complete column tuple independently of index order and name.
+     *
+     * @param  list<string>  $columns
+     */
+    private function hasUniqueIndex(Builder $schema, string $table, array $columns, bool $requireComplete = true): bool
+    {
+        sort($columns);
+
+        return array_any($schema->getIndexes($table), function (array $index) use ($schema, $table, $columns, $requireComplete): bool {
+            $actual = $index['columns'];
+            sort($actual);
+
+            return $index['unique'] && $actual === $columns
+                && (! $requireComplete || $index['primary'] || $this->isCompleteIndex($schema, $table, $index['name']));
+        });
+    }
+
+    /** Confirm the index enforces uniqueness for every row and has no hidden expression keys. */
+    private function isCompleteIndex(Builder $schema, string $table, string $index): bool
+    {
+        [$namespace, $table] = $schema->parseSchemaAndTable($table);
+        $connection = $schema->getConnection();
+        $physicalTable = $connection->getTablePrefix().$table;
+
+        return match ($connection->getDriverName()) {
+            'sqlite' => $connection->scalar(
+                'select 1 from pragma_index_list(?, ?) where lower(name) = ? and partial = 0'
+                .' and not exists (select 1 from pragma_index_info(name, ?) where cid < 0)',
+                [$physicalTable, $namespace ?? 'main', $index, $namespace ?? 'main'],
+                false,
+            ) !== null,
+            'pgsql' => $connection->scalar(
+                'select 1 from pg_index i join pg_class t on t.oid = i.indrelid'
+                .' join pg_namespace n on n.oid = t.relnamespace join pg_class x on x.oid = i.indexrelid'
+                .' where t.relname = ? and n.nspname = coalesce(?, current_schema()) and lower(x.relname) = ?'
+                .' having count(*) = 1 and bool_and(i.indisunique and i.indisvalid and i.indisready'
+                .' and i.indpred is null and i.indexprs is null)',
+                [$physicalTable, $namespace, $index],
+                false,
+            ) !== null,
+            default => false,
+        };
+    }
+
+    /**
+     * Report the exact unique index that would satisfy the declared scope.
+     *
+     * @param  list<string>  $columns
+     * @param  list<string>  $errors
+     */
+    private function reportMissingUniqueIndex(TranslationResourceDefinition $resource, string $table, array $columns, array &$errors): void
+    {
+        $index = $table.'_'.implode('_', $columns).'_unique';
+        $errors[] = "Resource [{$resource->key}] table [{$table}] requires a unique index [{$index}] on ["
+            .implode(', ', $columns).'].';
     }
 
     /**

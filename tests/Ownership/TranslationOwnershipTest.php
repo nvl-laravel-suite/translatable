@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Nvl\Ownership\Services\OwnershipRunner;
 use Nvl\Ownership\Services\OwnershipWriter;
+use Nvl\Ownership\Tests\Fixtures\OptsIntoAdoptedSchemaReuse;
 use Nvl\Ownership\ValueObjects\OwnershipAssignment;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Events\DomainEventDispatcher;
@@ -29,7 +30,7 @@ use Nvl\Translatable\Tests\Support\OwnershipRelatedTranslation;
 use Nvl\Translatable\Tests\Support\OwnershipSelfRecord;
 use Nvl\Translatable\Tests\Support\OwnershipTranslationListener;
 
-uses(OwnershipTestCase::class);
+uses(OwnershipTestCase::class, OptsIntoAdoptedSchemaReuse::class);
 
 it('keeps related translations in their persisted native owner partition', function (): void {
     $runner = app(OwnershipRunner::class);
@@ -188,7 +189,7 @@ it('admits an owned canonical owner whose integer key the driver returns as a nu
             $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, false);
         }
     });
-});
+})->group('fresh-adoption');
 
 it('admits the locked canonical owner once for a whole locale batch', function (): void {
     app(OwnershipRunner::class)->run(OwnershipCompany::query()->findOrFail(7), OwnershipActor::query()->firstOrFail(), function (): void {

@@ -26,6 +26,7 @@ use Nvl\Translatable\Events\TranslationResourceSynced;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\Services\RelatedTranslationStore;
+use Nvl\Translatable\Services\TranslationDoctor;
 use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
@@ -308,7 +309,7 @@ test('summary coverage uses one aggregate for scoped related and self resources'
     $model = $storage === 'self' ? new TestSelfTranslatableModel : new TestTranslatableModel;
     if (getenv('NVL_FULL_DATABASE') === '1') {
         expect($model->getConnection()->getDriverName())->toBe(getenv('DB_CONNECTION'))
-            ->and($model->getConnection()->getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME))->toBe(getenv('DB_CONNECTION') === 'mariadb' ? 'mysql' : getenv('DB_CONNECTION'));
+            ->and($model->getConnection()->getPdo()->getAttribute(PDO::ATTR_DRIVER_NAME))->toBe(getenv('DB_CONNECTION'));
     }
     app(TranslationResourceRegistry::class)->register(
         key: 'tests.coverage',
@@ -807,4 +808,27 @@ test('it rejects related resources spanning multiple database connections', func
         modelClass: TestMismatchedConnectionModel::class,
         label: 'Mismatched models',
     ))->toThrow(TranslationResourceException::class, 'same connection');
+});
+
+test('doctor rejects partial unique indexes on unowned related translation tables', function (): void {
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.partial-index',
+        modelClass: TestTranslatableModel::class,
+        label: 'Partial index',
+    );
+
+    foreach (Schema::getIndexes('test_translatable_models_i18n') as $index) {
+        if (($index['unique'] ?? false) === true && ! ($index['primary'] ?? false)) {
+            Schema::table('test_translatable_models_i18n', function (Blueprint $table) use ($index): void {
+                $table->dropUnique((string) $index['name']);
+            });
+        }
+    }
+
+    DB::statement('CREATE UNIQUE INDEX test_partial_locale_unique ON test_translatable_models_i18n (test_translatable_model_id, locale) WHERE name IS NOT NULL');
+
+    $report = app(TranslationDoctor::class)->inspect();
+
+    expect($report->isHealthy())->toBeFalse()
+        ->and(implode("\n", $report->errors))->toContain('requires a unique index');
 });

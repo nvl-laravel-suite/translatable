@@ -5,6 +5,10 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Honor configured database connections and table prefixes during `TranslationDoctor` schema and index inspection without aborting surrounding PostgreSQL transactions.
+
 ## [7.0.1] - 2026-11-11
 
 ### Fixed

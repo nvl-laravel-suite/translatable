@@ -571,6 +571,64 @@ it('diagnoses the adopted tenant schema without mutating it', function (): void 
         ])->toBe($before);
 });
 
+it('accepts global parent and locale uniqueness for an adopted related resource', function (): void {
+    TenantTranslationScenario::install();
+    Schema::table('tenant_test_article_translations', static function (Blueprint $table): void {
+        $table->dropUnique('tenant_articles_native_locale_unique');
+        $table->unique(['article_id', 'locale']);
+    });
+
+    expect(implode(' ', app(TranslationDoctor::class)->inspect()->errors))
+        ->not->toContain('Resource [test.articles]');
+});
+
+it('requires scoped related uniqueness without a complete global parent and locale constraint', function (string $defect, ?string $foreignKeyError): void {
+    TenantTranslationScenario::install();
+    Schema::table('tenant_test_article_translations', static function (Blueprint $table) use ($defect): void {
+        $table->dropUnique('tenant_articles_native_locale_unique');
+        if ($defect !== 'partial index') {
+            $table->unique(['article_id', 'locale']);
+        }
+        if (in_array($defect, ['missing foreign key', 'wrong parent', 'non-cascading foreign key'], true)) {
+            $table->dropForeign(['article_id']);
+        }
+        if ($defect === 'wrong parent') {
+            $table->foreign('article_id')->references('id')->on('tenant_test_owners')->cascadeOnDelete();
+        }
+        if ($defect === 'non-cascading foreign key') {
+            $table->foreign('article_id')->references('id')->on('tenant_test_articles')->restrictOnDelete();
+        }
+    });
+    if ($defect === 'partial index') {
+        DB::statement("create unique index partial_article_locale on tenant_test_article_translations (article_id, locale) where locale = 'en'");
+    }
+    if ($defect === 'missing global parent key') {
+        $triggers = DB::table('sqlite_schema')->where('type', 'trigger')->where('tbl_name', 'tenant_test_articles')->pluck('sql');
+        DB::statement('pragma legacy_alter_table = on');
+        try {
+            Schema::table('tenant_test_articles', static fn (Blueprint $table) => $table->dropPrimary());
+            foreach ($triggers as $trigger) {
+                DB::unprepared($trigger);
+            }
+        } finally {
+            DB::statement('pragma legacy_alter_table = off');
+        }
+    }
+
+    $errors = implode(' ', app(TranslationDoctor::class)->inspect()->errors);
+
+    expect($errors)->toContain('tenant_test_article_translations_owner_scope_key_article_id_locale_unique');
+    if ($foreignKeyError !== null) {
+        expect($errors)->toContain($foreignKeyError);
+    }
+})->with([
+    'partial index' => ['partial index', null],
+    'missing global parent key' => ['missing global parent key', null],
+    'missing foreign key' => ['missing foreign key', 'lacks its owner foreign key'],
+    'wrong parent' => ['wrong parent', 'lacks its owner foreign key'],
+    'non-cascading foreign key' => ['non-cascading foreign key', 'owner foreign key must cascade on delete'],
+]);
+
 it('reports the exact native self unique index fix without applying it', function (): void {
     TenantTranslationScenario::install();
     Schema::table('tenant_test_entries', static function (Blueprint $table): void {
