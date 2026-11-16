@@ -600,3 +600,22 @@ test('self store writes normalize the locale and reject undeclared locales and f
         ->and(fn () => $upsert('bg', ['entry_key' => 'forged']))->toThrow(InvalidTranslatableFieldException::class)
         ->and(TestSelfTranslatableModel::query()->orderBy('locale')->pluck('locale')->all())->toBe(['en', 'en-GB']);
 });
+
+test('rolls back the entire batch when a later model save is vetoed', function (bool $existing): void {
+    Event::fake([TranslationResourceSynced::class]);
+    $model = TestSelfTranslatableModel::create(['entry_key' => 'vetoed', 'locale' => 'en', 'name' => 'Original']);
+    if ($existing) {
+        TestSelfTranslatableModel::create(['entry_key' => 'vetoed', 'locale' => 'bg', 'name' => 'Old']);
+    }
+    TestSelfTranslatableModel::saving(static fn (TestSelfTranslatableModel $row): ?bool => $row->locale === 'bg' ? false : null);
+
+    expect(fn () => app(TranslationWriter::class)->sync(
+        $model,
+        ['en' => ['name' => 'Changed'], 'bg' => ['name' => 'Vetoed']],
+        SystemActor::Background,
+        app(TranslationResourceVersioner::class)->version($model),
+    ))->toThrow(TranslatableException::class, 'A model observer interrupted saving the grouped translation row.')
+        ->and(TestSelfTranslatableModel::query()->where('entry_key', 'vetoed')->orderBy('locale')->pluck('name', 'locale')->all())
+        ->toBe($existing ? ['bg' => 'Old', 'en' => 'Original'] : ['en' => 'Original']);
+    Event::assertNotDispatched(TranslationResourceSynced::class);
+})->with(['created row' => false, 'updated row' => true]);

@@ -586,8 +586,9 @@ it('rejects changed canonical inherited parent identity when locking', function 
             $child->setAttribute('name', 'Unpersisted content');
             expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
             if ($persistedChange) {
-                expect(fn () => $child->getConnection()->table($child->getTable())->where('id', $child->getKey())->update(['article_id' => $other->id]))
-                    ->toThrow(QueryException::class);
+                expect(fn () => $child->getConnection()->transaction(
+                    static fn () => $child->getConnection()->table($child->getTable())->where('id', $child->getKey())->update(['article_id' => $other->id]),
+                ))->toThrow(QueryException::class);
                 expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
             } else {
                 $child->setAttribute('article_id', $other->id);

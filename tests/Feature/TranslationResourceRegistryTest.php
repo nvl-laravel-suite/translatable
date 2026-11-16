@@ -913,3 +913,24 @@ test('doctor requires an active-only unique index for a KeepHistory related defi
     'active-only index' => ['CREATE UNIQUE INDEX history_active ON related_identity_translations (related_identity_owner_id, locale) WHERE deleted_at IS NULL', true],
     'quoted active-only index' => ['CREATE UNIQUE INDEX history_quoted ON related_identity_translations (related_identity_owner_id, locale) WHERE ("deleted_at" IS NULL)', true],
 ]);
+
+test('doctor rejects complete uniqueness alongside an active-only KeepHistory index', function (string $complete): void {
+    config()->set('nvl-translatable.test_deleted_row_policy', RelatedTranslationDeletedRowPolicy::KeepHistory->value);
+    RelatedIdentitySchema::create(Schema::getFacadeRoot(), uniqueIndex: false);
+    app(TranslationResourceRegistry::class)->register('tests.history', SoftDeletingRelatedOwner::class, 'History models');
+    DB::statement('CREATE UNIQUE INDEX history_active ON related_identity_translations (related_identity_owner_id, locale) WHERE deleted_at IS NULL');
+    DB::statement($complete);
+
+    $errors = implode("\n", array_filter(
+        app(TranslationDoctor::class)->inspect()->errors,
+        static fn (string $error): bool => str_starts_with($error, 'Resource [tests.history]'),
+    ));
+
+    expect($errors)->toContain('table [related_identity_translations] keeps the complete unique index [history_complete] on [related_identity_owner_id, locale]')
+        ->toContain('blocks recreating a soft-deleted locale')
+        ->not->toContain('requires an active-only unique index');
+    RelatedIdentitySchema::drop(Schema::getFacadeRoot());
+})->with([
+    'complete index' => ['CREATE UNIQUE INDEX history_complete ON related_identity_translations (related_identity_owner_id, locale)'],
+    'reordered complete index' => ['CREATE UNIQUE INDEX history_complete ON related_identity_translations (locale, related_identity_owner_id)'],
+]);

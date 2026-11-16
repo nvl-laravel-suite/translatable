@@ -17,10 +17,17 @@ use Nvl\Ownership\ValueObjects\OwnershipOperation;
 use Nvl\Support\Providers\SupportServiceProvider;
 use Nvl\Translatable\Tests\Support\OwnershipActor;
 use Nvl\Translatable\Tests\Support\TenantTranslationOwner;
+use RuntimeException;
 
-/** Boots historical tenant-named fixtures through native Ownership admission. */
+/** Boots historical tenant-named fixtures through native Ownership admission, on SQLite or the dedicated PostgreSQL package database. */
 abstract class TenancyTestCase extends TestCase
 {
+    /** Whether the package PostgreSQL gate selected its dedicated database for this process. */
+    protected static function usesPostgreSql(): bool
+    {
+        return getenv('DB_CONNECTION') === 'pgsql';
+    }
+
     protected function getPackageProviders($app): array
     {
         return [SupportServiceProvider::class, OwnershipServiceProvider::class, ...parent::getPackageProviders($app)];
@@ -29,12 +36,29 @@ abstract class TenancyTestCase extends TestCase
     protected function defineEnvironment($app): void
     {
         parent::defineEnvironment($app);
+        if (! self::usesPostgreSql()) {
+            $app['config']->set(['database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:']);
+        }
         $app['config']->set([
-            'database.default' => 'sqlite', 'database.connections.sqlite.database' => ':memory:',
             'nvl-core.owners' => [TenantTranslationOwner::class, OwnershipActor::class],
             'nvl-ownership.enabled' => true, 'nvl-ownership.migrations.enabled' => false,
             'nvl-ownership.central_operations' => ['translation-maintain'],
         ]);
+    }
+
+    /** Assert the selected driver; on PostgreSQL start from, and leave behind, an empty dedicated package database. */
+    protected function setUpDatabase($app)
+    {
+        $connection = $app['db']->connection();
+        $this->assertSame(self::usesPostgreSql() ? 'pgsql' : 'sqlite', $connection->getDriverName());
+        if (self::usesPostgreSql()) {
+            if (preg_match('/^nvl_translatable_test_[a-f0-9]{8}_ci$/D', $connection->getDatabaseName()) !== 1) {
+                throw new RuntimeException('Tenancy fixtures on PostgreSQL require the dedicated package test database.');
+            }
+            $connection->getSchemaBuilder()->dropAllTables();
+            $this->beforeApplicationDestroyed(static fn () => $connection->getSchemaBuilder()->dropAllTables());
+        }
+        parent::setUpDatabase($app);
     }
 
     protected function setUp(): void

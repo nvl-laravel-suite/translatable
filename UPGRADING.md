@@ -32,6 +32,10 @@ Related-table and grouped self-row schemas remain supported. Keep locale uniquen
 
 Reject now refuses a deleted blocker even without a unique index. Add a complete owner+locale unique index. Previously, Reject also inserted a fresh row beside a deleted one when an active-only index allowed it; a table that relies on that history behavior must now declare `deletedRowPolicy: RelatedTranslationDeletedRowPolicy::KeepHistory`.
 
+When moving a table to KeepHistory, add the active-only unique index (`WHERE deleted_at IS NULL`) first, then drop the old complete owner+locale unique index in the same host migration. Doctor now reports a KeepHistory table that still has the complete index and names it, because that index makes recreating a soft-deleted locale fail.
+
+A model observer that returns false from `saving`, `creating` or `updating` for a translation row now aborts the write with `TranslatableException`, and `TranslationWriter` rolls back every locale in the batch without dispatching its event. Hosts that vetoed one locale to skip it must filter that locale out of the payload instead.
+
 When a self-row definition explicitly enables `allowDeletingLastTranslation`, a final delete or empty Replace removes the live group. Empty Replace returns a group identity with an empty relation, marked non-persisted after hard deletion or trashed after soft deletion; its event carries the terminal revision. The default remains final-row protection.
 
 Install a fresh standalone application from the package's runtime dependency closure to verify that Data, TypeScript, HTTP extras, and Tenancy are absent. Rebuild configuration caches and restart long-lived workers after changing resource registration or adoption.

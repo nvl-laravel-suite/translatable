@@ -36,13 +36,12 @@ final readonly class SelfTranslationStore
     ): Model {
         $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
-        $this->groupQuery($canonicalOwner, $definition, withTrashed: true)->lockForUpdate()->get();
 
         return $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
     }
 
     /**
-     * Persist a locale batch under one canonical owner and whole-group lock.
+     * Persist a locale batch under the canonical owner lock, which also locks the whole group.
      *
      * @param  array<string, array<string, mixed>>  $translations
      *
@@ -52,7 +51,6 @@ final readonly class SelfTranslationStore
     {
         $definition = $this->canonicalDefinition($owner, $definition);
         $canonicalOwner = $this->lockOwner($owner, $definition);
-        $this->groupQuery($canonicalOwner, $definition, withTrashed: true)->lockForUpdate()->get();
         foreach ($translations as $locale => $attributes) {
             $this->upsertForOwner($canonicalOwner, $definition, $locale, $attributes);
         }
@@ -211,8 +209,8 @@ final readonly class SelfTranslationStore
             if (! $translation->restore()) {
                 throw new TranslatableException('The grouped translation row could not be restored.');
             }
-        } elseif ($translation->isDirty()) {
-            $translation->save();
+        } elseif ($translation->isDirty() && $translation->save() !== true) {
+            throw new TranslatableException('A model observer interrupted saving the grouped translation row.');
         }
 
         return $translation;
@@ -249,7 +247,9 @@ final readonly class SelfTranslationStore
                             $translation->setAttribute($field, $value);
                         }
 
-                        $translation->saveOrFail();
+                        if ($translation->saveOrFail() !== true) {
+                            throw new TranslatableException('A model observer interrupted saving the grouped translation row.');
+                        }
 
                         return $translation;
                     });
@@ -325,15 +325,8 @@ final readonly class SelfTranslationStore
     private function groupQuery(
         Model&SelfTranslatableModel $owner,
         SelfTranslationDefinition $definition,
-        bool $withTrashed = false,
     ): Builder {
-        $query = $owner->newQuery();
-
-        if ($withTrashed) {
-            $query->withoutGlobalScope(SoftDeletingScope::class);
-        }
-
-        $query = $this->ownership->query($query, $definition);
+        $query = $this->ownership->query($owner->newQuery(), $definition);
         foreach ([
             ...$this->ownership->childAttributes($owner, $definition),
             $definition->groupKey => $owner->translationResourceKey(),

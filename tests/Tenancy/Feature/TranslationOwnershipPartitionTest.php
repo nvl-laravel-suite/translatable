@@ -188,8 +188,9 @@ it('rejects changed canonical polymorphic parent identity when locking', functio
         $child->getConnection()->transaction(static function () use ($child, $other, $change, $definition, $ownership): void {
             expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
             if ($change === 'persisted parent') {
-                expect(fn () => DB::table($child->getTable())->where('id', $child->id)->update(['owner_id' => $other->id]))
-                    ->toThrow(QueryException::class);
+                expect(fn () => $child->getConnection()->transaction(
+                    static fn () => DB::table($child->getTable())->where('id', $child->id)->update(['owner_id' => $other->id]),
+                ))->toThrow(QueryException::class);
                 expect($ownership->lockOwner($child, $definition)->getKey())->toBe($child->getKey());
             } elseif ($change === 'dirty type') {
                 $child->owner_type = 'unregistered';

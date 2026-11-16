@@ -135,6 +135,9 @@ final readonly class TranslationOwnership
         if (! $owner->exists || (! is_string($key) && ! is_int($key))) {
             throw new OwnershipViolation('Translation locking requires a persisted native identity.');
         }
+        if ($definition instanceof SelfTranslationDefinition) {
+            $this->lockSelfGroup($owner, $definition);
+        }
         $persisted = $this->query($owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class), $definition)->whereKey($key)->lockForUpdate()->first();
         if (! $persisted instanceof Model) {
             throw new OwnershipViolation('The canonical translation owner is unavailable.');
@@ -147,6 +150,23 @@ final readonly class TranslationOwnership
         $this->assertOwner($persisted, $definition);
 
         return $persisted;
+    }
+
+    /**
+     * Lock every row of a self-translation group, soft-deleted rows included, in primary-key order.
+     *
+     * Writers entering one group through different locale rows then queue on the same first row instead of deadlocking.
+     */
+    private function lockSelfGroup(Model $owner, SelfTranslationDefinition $definition): void
+    {
+        $query = $this->query($owner->newQuery()->withoutGlobalScope(SoftDeletingScope::class), $definition);
+        foreach ([
+            ...$this->childAttributes($owner, $definition),
+            $definition->groupKey => $owner->getRawOriginal($definition->groupKey),
+        ] as $column => $value) {
+            $query->getQuery()->where($column, $value);
+        }
+        $query->orderBy($owner->getQualifiedKeyName())->lockForUpdate()->get([$owner->getQualifiedKeyName()]);
     }
 
     /** Reload all eager owners in one admitted canonical query without caching authority.

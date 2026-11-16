@@ -336,8 +336,8 @@ final readonly class RelatedTranslationStore
             $translation->setAttribute($field, $value);
         }
 
-        if ($translation->isDirty()) {
-            $translation->save();
+        if ($translation->isDirty() && $translation->save() !== true) {
+            throw new TranslatableException('A model observer interrupted saving the translation row.');
         }
         $this->forgetResolvedValues($canonicalOwner, $definition);
 
@@ -398,7 +398,9 @@ final readonly class RelatedTranslationStore
                             $translation->setAttribute($field, $value);
                         }
 
-                        $translation->saveOrFail();
+                        if ($translation->saveOrFail() !== true) {
+                            throw new TranslatableException('A model observer interrupted saving the translation row.');
+                        }
 
                         return $translation;
                     });

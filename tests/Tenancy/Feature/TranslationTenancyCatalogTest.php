@@ -264,6 +264,9 @@ it('keeps central preload and version query counts constant as a page grows', fu
 });
 
 it('rechecks live owner, store, generation, and trigger state in the next owner context', function (string $change, string $exception): void {
+    if ($change === 'owner' && DB::connection()->getDriverName() !== 'sqlite') {
+        $this->markTestSkipped('Deleting a still-referenced owner relies on SQLite foreign-key switching.');
+    }
     $s = TenantTranslationScenario::install();
     $s->entry($s::A, 'same', 'en', 'A only');
     $locator = app(TranslationResourceLocator::class);
@@ -285,7 +288,7 @@ it('rechecks live owner, store, generation, and trigger state in the next owner 
             })(),
             'trigger' => (static function () use ($connection): void {
                 $name = app(OwnershipConstraintInspector::class)->name($connection, 'tenant_test_entries', 'insert', 'valid');
-                DB::statement('DROP TRIGGER "'.$name.'"');
+                DB::statement('DROP TRIGGER "'.$name.'"'.($connection->getDriverName() === 'pgsql' ? ' ON "tenant_test_entries"' : ''));
             })(),
         };
 
@@ -583,6 +586,9 @@ it('accepts global parent and locale uniqueness for an adopted related resource'
 });
 
 it('requires scoped related uniqueness without a complete global parent and locale constraint', function (string $defect, ?string $foreignKeyError): void {
+    if ($defect === 'missing global parent key' && DB::connection()->getDriverName() !== 'sqlite') {
+        $this->markTestSkipped('Dropping the parent key while keeping its triggers is a SQLite table-rebuild fixture.');
+    }
     TenantTranslationScenario::install();
     Schema::table('tenant_test_article_translations', static function (Blueprint $table) use ($defect): void {
         $table->dropUnique('tenant_articles_native_locale_unique');

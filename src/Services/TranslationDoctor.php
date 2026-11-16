@@ -406,6 +406,9 @@ final readonly class TranslationDoctor
                 && $this->hasUniqueIndex($ownerSchema, $model->getTable(), [$definition->ownerKey], requireComplete: true))) {
             $this->reportMissingUniqueIndex($resource, $translationTable, $scopedColumns, $errors, $deletedAt);
         }
+        if ($deletedAt !== null) {
+            $this->rejectCompleteUniqueIndex($resource, $translationSchema, $translationTable, [$scopedColumns, $localeColumns], $errors);
+        }
 
         if (! is_array($matchingForeignKey)) {
             $errors[] = "Resource [{$resource->key}] table [{$translationTable}] lacks its owner foreign key and requires composite columns (["
@@ -661,15 +664,51 @@ final readonly class TranslationDoctor
      */
     private function hasUniqueIndex(Builder $schema, string $table, array $columns, bool $requireComplete = true): bool
     {
-        sort($columns);
+        return $this->uniqueIndexName($schema, $table, $columns, $requireComplete) !== null;
+    }
 
-        return array_any($schema->getIndexes($table), function (array $index) use ($schema, $table, $columns, $requireComplete): bool {
+    /**
+     * Return the name of a unique index over the exact column tuple, independently of index order.
+     *
+     * With $requireValid false, a PostgreSQL index left invalid by a failed concurrent build still matches while it enforces inserts.
+     *
+     * @param  list<string>  $columns
+     */
+    private function uniqueIndexName(Builder $schema, string $table, array $columns, bool $requireComplete = true, bool $requireValid = true): ?string
+    {
+        sort($columns);
+        $match = array_find($schema->getIndexes($table), function (array $index) use ($schema, $table, $columns, $requireComplete, $requireValid): bool {
             $actual = $index['columns'];
             sort($actual);
 
             return $index['unique'] && $actual === $columns
-                && (! $requireComplete || $index['primary'] || $this->isCompleteIndex($schema, $table, $index['name']));
+                && (! $requireComplete || $index['primary'] || $this->isCompleteIndex($schema, $table, $index['name'], $requireValid));
         });
+
+        return is_array($match) ? $match['name'] : null;
+    }
+
+    /**
+     * Reject a complete unique identity index left beside a KeepHistory active-only index, because it blocks recreating a soft-deleted locale.
+     *
+     * @param  list<list<string>>  $identities
+     * @param  list<string>  $errors
+     */
+    private function rejectCompleteUniqueIndex(
+        TranslationResourceDefinition $resource,
+        Builder $schema,
+        string $table,
+        array $identities,
+        array &$errors,
+    ): void {
+        foreach (array_unique($identities, SORT_REGULAR) as $columns) {
+            $index = $this->uniqueIndexName($schema, $table, $columns, requireValid: false);
+            if ($index !== null) {
+                $errors[] = "Resource [{$resource->key}] table [{$table}] keeps the complete unique index [{$index}] on ["
+                    .implode(', ', $columns).'] although its KeepHistory policy keeps soft-deleted rows as history.'
+                    .' It blocks recreating a soft-deleted locale. Drop it in a host migration once the active-only index exists.';
+            }
+        }
     }
 
     /**
@@ -756,7 +795,7 @@ final readonly class TranslationDoctor
     }
 
     /** Confirm the index enforces uniqueness for every row and has no hidden expression keys. */
-    private function isCompleteIndex(Builder $schema, string $table, string $index): bool
+    private function isCompleteIndex(Builder $schema, string $table, string $index, bool $requireValid = true): bool
     {
         [$namespace, $table] = $schema->parseSchemaAndTable($table);
         $connection = $schema->getConnection();
@@ -773,7 +812,8 @@ final readonly class TranslationDoctor
                 'select 1 from pg_index i join pg_class t on t.oid = i.indrelid'
                 .' join pg_namespace n on n.oid = t.relnamespace join pg_class x on x.oid = i.indexrelid'
                 .' where t.relname = ? and n.nspname = coalesce(?, current_schema()) and lower(x.relname) = ?'
-                .' having count(*) = 1 and bool_and(i.indisunique and i.indisvalid and i.indisready'
+                .' having count(*) = 1 and bool_and(i.indisunique and i.indisready'
+                .($requireValid ? ' and i.indisvalid' : '')
                 .' and i.indpred is null and i.indexprs is null)',
                 [$physicalTable, $namespace, $index],
                 false,
