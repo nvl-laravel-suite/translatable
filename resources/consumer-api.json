@@ -88,6 +88,23 @@
                 "EN"
             ]
         },
+        "Nvl\\Translatable\\Enums\\RelatedTranslationDeletedRowPolicy": {
+            "kind": "enum",
+            "file": "src/Enums/RelatedTranslationDeletedRowPolicy.php",
+            "methods": [
+                "cases",
+                "from",
+                "tryFrom"
+            ],
+            "properties": [
+                "name",
+                "value"
+            ],
+            "constants": [
+                "Reject",
+                "Restore"
+            ]
+        },
         "Nvl\\Translatable\\Enums\\TranslatableResponseCode": {
             "kind": "enum",
             "file": "src/Enums/TranslatableResponseCode.php",
@@ -345,6 +362,8 @@
                 "supportedLocales"
             ],
             "properties": [
+                "cacheResolvedValues",
+                "deletedRowPolicy",
                 "fallbackLocales",
                 "fallbackOnNull",
                 "fallbackPolicy",
@@ -595,6 +614,7 @@
                 "scopeWhereTranslationNotNull",
                 "scopeWhereTranslationNull",
                 "scopeWithAllTranslations",
+                "scopeWithJoinedTranslation",
                 "scopeWithResolvedTranslations",
                 "setLocale",
                 "translated",
@@ -606,6 +626,7 @@
                 "whereTranslationNotNull",
                 "whereTranslationNull",
                 "withAllTranslations",
+                "withJoinedTranslation",
                 "withResolvedTranslations"
             ],
             "properties": [

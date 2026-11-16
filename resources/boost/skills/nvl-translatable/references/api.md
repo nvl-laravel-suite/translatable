@@ -12,6 +12,7 @@ Search for the relevant fully qualified service or contract and read only its ma
 - `Nvl\Translatable\Contracts\TranslatableResourceModel`
 - `Nvl\Translatable\Contracts\TranslationResourceAuthorizer`
 - `Nvl\Translatable\Enums\Locale`
+- `Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy`
 - `Nvl\Translatable\Enums\TranslatableResponseCode`
 - `Nvl\Translatable\Enums\TranslationFallbackPolicy`
 - `Nvl\Translatable\Enums\TranslationMutationPolicy`
@@ -118,6 +119,19 @@ public function nativeLabel(): string
 public static function normalizeLanguageCode(string $code, string $fallback="en"): string
 public static function options(self $activeLocale=self::EN): array
 @return list<array{value: string, internationalLabel: string, nativeLabel: string, active: bool}>
+public readonly string $name
+public static function cases(): array
+public readonly string $value
+public static function from(string|int $value): static
+public static function tryFrom(string|int $value): ?static
+```
+
+## Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy
+
+```text
+enum Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy implements BackedEnum, UnitEnum: string
+public const Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy Reject=Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy::Reject="reject"
+public const Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy Restore=Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy::Restore="restore"
 public readonly string $name
 public static function cases(): array
 public readonly string $value
@@ -346,7 +360,7 @@ public static function unknown(string $key, array $registered): self
 
 ```text
 final readonly class Nvl\Translatable\RelatedTranslationDefinition extends Nvl\Translatable\TranslationDefinition
-public function __construct(string $translationModel, array $fields, ?string $foreignKey=null, string $ownerKey="id", string $localeKey="locale", ?array $locales=null, ?Nvl\Translatable\Enums\TranslationFallbackPolicy $fallbackPolicy=null, array $fallbackLocales=[], ?bool $fallbackOnNull=null, Nvl\Translatable\Enums\TranslationMutationPolicy $mutationPolicy=\Nvl\Translatable\Enums\TranslationMutationPolicy::Direct, ?string $ownershipResource=null): mixed
+public function __construct(string $translationModel, array $fields, ?string $foreignKey=null, string $ownerKey="id", string $localeKey="locale", ?array $locales=null, ?Nvl\Translatable\Enums\TranslationFallbackPolicy $fallbackPolicy=null, array $fallbackLocales=[], ?bool $fallbackOnNull=null, Nvl\Translatable\Enums\TranslationMutationPolicy $mutationPolicy=\Nvl\Translatable\Enums\TranslationMutationPolicy::Direct, ?string $ownershipResource=null, Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy $deletedRowPolicy=\Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy::Reject, bool $cacheResolvedValues=false): mixed
 @param class-string<Model> $translationModel
 resolved @param class-string<Illuminate\Database\Eloquent\Model> $translationModel
 @param list<string> $fields
@@ -370,6 +384,8 @@ public function shouldFallbackOnNull(): bool
 public function storage(): Nvl\Translatable\Enums\TranslationStorageStrategy
 public function supportedLocales(): array
 @return list<string>
+public readonly bool $cacheResolvedValues
+public readonly Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy $deletedRowPolicy
 public readonly array $fallbackLocales
 @param list<string> $fallbackLocales
 public readonly ?bool $fallbackOnNull
@@ -640,7 +656,7 @@ resolved @param Illuminate\Support\Collection<int, Illuminate\Database\Eloquent\
 
 ```text
 final readonly class Nvl\Translatable\Services\TranslationResourceGatherer
-public function __construct(Nvl\Translatable\Services\TranslationResourceRegistry $resources, Nvl\Support\Contracts\LocaleCatalog $locales, Nvl\Translatable\Services\TranslationResourceAuthorization $authorization, Nvl\Translatable\Services\TranslationResourceVersioner $versioner, Nvl\Translatable\Services\TranslationResourceLocator $locator, Nvl\Translatable\Services\TranslationOwnership $ownership, Nvl\Support\Ownership\Services\OwnershipResourceRegistry $ownershipResources, Nvl\Support\Ownership\Contracts\OwnershipContext $ownershipContext, Nvl\Support\Events\DomainEventDispatcher $domainEvents): mixed
+public function __construct(Nvl\Translatable\Services\TranslationResourceRegistry $resources, Nvl\Support\Contracts\LocaleCatalog $locales, Nvl\Translatable\Services\TranslationResourceAuthorization $authorization, Nvl\Translatable\Services\TranslationResourceVersioner $versioner, Nvl\Translatable\Services\TranslationResourceLocator $locator, Nvl\Translatable\Services\TranslationOwnership $ownership, Nvl\Support\Ownership\Services\OwnershipResourceRegistry $ownershipResources, Nvl\Support\Ownership\Contracts\OwnershipContext $ownershipContext, Nvl\Support\Events\DomainEventDispatcher $domainEvents, ?Nvl\Support\Contracts\TextMatcher $textMatcher=null): mixed
 public function find(string $resourceKey, int|string $id, Illuminate\Contracts\Auth\Authenticatable|Nvl\Support\Enums\SystemActor $actor): array
 @return ResourceRecord
 resolved @return array{resource: string, id: (int | string), label: string, attributes: array<string, mixed>, translations: array<string, array<string, mixed>>, translatedLocales: list<string>, missingLocales: list<string>, version: string}
@@ -745,6 +761,11 @@ public function scopeWithAllTranslations(Illuminate\Database\Eloquent\Builder $q
 resolved @param Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> $query
 @return Builder<static>
 resolved @return Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable>
+public function scopeWithJoinedTranslation(Illuminate\Database\Eloquent\Builder $query, ?string $locale=null, string $alias="nvl_translation"): Illuminate\Database\Eloquent\Builder
+@param Builder<static> $query
+resolved @param Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> $query
+@return Builder<static>
+resolved @return Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable>
 public function scopeWithResolvedTranslations(Illuminate\Database\Eloquent\Builder $query, ?string $locale=null): Illuminate\Database\Eloquent\Builder
 @param Builder<static> $query
 resolved @param Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> $query
@@ -770,6 +791,8 @@ resolved @method static Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Tr
 resolved @method static Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> whereTranslationNull(string $field, ?string $locale = null)
 @method static Builder<static> withAllTranslations()
 resolved @method static Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> withAllTranslations()
+@method static Builder<static> withJoinedTranslation(?string $locale = null, string $alias = 'nvl_translation')
+resolved @method static Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> withJoinedTranslation(?string $locale = null, string $alias = 'nvl_translation')
 @method static Builder<static> withResolvedTranslations(?string $locale = null)
 resolved @method static Illuminate\Database\Eloquent\Builder<Nvl\Translatable\Translatable> withResolvedTranslations(?string $locale = null)
 @property-read Collection<int, Model> $translations

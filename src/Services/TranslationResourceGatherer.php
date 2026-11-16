@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use LogicException;
 use Nvl\Support\Contracts\LocaleCatalog;
+use Nvl\Support\Contracts\TextMatcher;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Events\DomainEventDispatcher;
 use Nvl\Support\Ownership\Contracts\OwnershipContext;
@@ -55,6 +56,7 @@ final readonly class TranslationResourceGatherer
         private OwnershipResourceRegistry $ownershipResources,
         private OwnershipContext $ownershipContext,
         private DomainEventDispatcher $domainEvents,
+        private ?TextMatcher $textMatcher = null,
     ) {}
 
     /**
@@ -426,11 +428,7 @@ final readonly class TranslationResourceGatherer
             return;
         }
 
-        $term = '%'.str_replace(
-            ['!', '%', '_'],
-            ['!!', '!%', '!_'],
-            trim($search),
-        ).'%';
+        $term = trim($search);
 
         if ($model instanceof SelfTranslatableModel) {
             $this->applySelfSearch($builder, $resource, $model, $term);
@@ -490,12 +488,9 @@ final readonly class TranslationResourceGatherer
                         $resource,
                         $term,
                     ): void {
+                        $matcher = $this->textMatcher ?? app(TextMatcher::class);
                         foreach ($resource->searchableColumns as $index => $column) {
-                            $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
-                            $wrapped = $nested->getGrammar()->wrap("{$alias}.{$column}");
-                            $sql = "{$wrapped} LIKE ? ESCAPE '!'";
-                            $this->assertSafeSearchSql($sql);
-                            $nested->{$method}($sql, [$term]);
+                            $matcher->contains($nested, "{$alias}.{$column}", $term, boolean: $index === 0 ? 'and' : 'or');
                         }
                     });
             },
@@ -510,24 +505,9 @@ final readonly class TranslationResourceGatherer
      */
     private function applySearchColumns(Builder $builder, array $columns, string $term): void
     {
+        $matcher = $this->textMatcher ?? app(TextMatcher::class);
         foreach ($columns as $index => $column) {
-            $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
-            $wrappedColumn = $builder->getQuery()->getGrammar()->wrap($column);
-            $sql = "{$wrappedColumn} LIKE ? ESCAPE '!'";
-            $this->assertSafeSearchSql($sql);
-            $builder->{$method}($sql, [$term]);
-        }
-    }
-
-    /**
-     * Assert that generated search SQL contains only quoted identifiers and fixed syntax.
-     *
-     * @phpstan-assert literal-string $sql
-     */
-    private function assertSafeSearchSql(string $sql): void
-    {
-        if (preg_match("/^[A-Za-z0-9_.\"`\\[\\]]+ LIKE \\? ESCAPE '!'$/D", $sql) !== 1) {
-            throw TranslationResourceException::invalid('A searchable column produced unsafe SQL.');
+            $matcher->contains($builder->getQuery(), $column, $term, boolean: $index === 0 ? 'and' : 'or');
         }
     }
 

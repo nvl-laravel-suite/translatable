@@ -117,6 +117,7 @@ final readonly class TranslationWriter
             }, $this->transactionAttempts());
         } finally {
             $owner->unsetRelation('translations');
+            $this->forgetRelatedValues($owner);
         }
     }
 
@@ -170,6 +171,15 @@ final readonly class TranslationWriter
             }, $this->transactionAttempts());
         } finally {
             $owner->unsetRelation('translations');
+            $this->forgetRelatedValues($owner);
+        }
+    }
+
+    private function forgetRelatedValues(Model&TranslatableResourceModel $owner): void
+    {
+        $definition = $owner->translationDefinition();
+        if ($definition instanceof RelatedTranslationDefinition && $definition->cacheResolvedValues) {
+            app(RelatedTranslationValueCache::class)->forget($owner, $definition);
         }
     }
 

@@ -22,6 +22,7 @@ use Nvl\Translatable\Ownership\TranslationContextParticipant;
 use Nvl\Translatable\Services\ContentLocale;
 use Nvl\Translatable\Services\NullContentLocalePreferenceResolver;
 use Nvl\Translatable\Services\RelatedTranslationStore;
+use Nvl\Translatable\Services\RelatedTranslationValueCache;
 use Nvl\Translatable\Services\SelfTranslationStore;
 use Nvl\Translatable\Services\SystemTranslationResourceAuthorizer;
 use Nvl\Translatable\Services\TranslationDoctor;
@@ -73,6 +74,7 @@ final class TranslatableServiceProvider extends ServiceProvider implements Owner
         $this->app->scoped(TranslationDoctor::class);
         $this->app->scoped(TranslationPayloadValidator::class);
         $this->app->scoped(RelatedTranslationStore::class);
+        $this->app->scoped(RelatedTranslationValueCache::class);
         $this->app->scoped(SelfTranslationStore::class);
         $this->app->scoped(TranslationWriter::class);
         $this->app->singleton(TranslationResourceRegistry::class);

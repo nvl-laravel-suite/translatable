@@ -6,6 +6,7 @@ namespace Nvl\Translatable;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationStorageStrategy;
@@ -38,6 +39,8 @@ final readonly class RelatedTranslationDefinition extends TranslationDefinition
         ?bool $fallbackOnNull = null,
         TranslationMutationPolicy $mutationPolicy = TranslationMutationPolicy::Direct,
         ?string $ownershipResource = null,
+        public RelatedTranslationDeletedRowPolicy $deletedRowPolicy = RelatedTranslationDeletedRowPolicy::Reject,
+        public bool $cacheResolvedValues = false,
     ) {
         parent::__construct(
             fields: $fields,

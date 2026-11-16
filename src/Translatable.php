@@ -11,12 +11,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\App;
 use Illuminate\Support\Facades\Context;
+use Nvl\Support\Contracts\TextMatcher;
 use Nvl\Translatable\Enums\TranslationComparisonValue;
 use Nvl\Translatable\Relations\TranslationHasMany;
 use Nvl\Translatable\Relations\TranslationHasOne;
 use Nvl\Translatable\Relations\TranslationRelationBuilder;
 use Nvl\Translatable\Services\ContentLocale;
+use Nvl\Translatable\Services\RelatedTranslationJoin;
 use Nvl\Translatable\Services\RelatedTranslationStore;
+use Nvl\Translatable\Services\RelatedTranslationValueCache;
 use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationResolver;
 
@@ -27,6 +30,7 @@ use Nvl\Translatable\Services\TranslationResolver;
  *
  * @method static Builder<static> withAllTranslations()
  * @method static Builder<static> withResolvedTranslations(?string $locale = null)
+ * @method static Builder<static> withJoinedTranslation(?string $locale = null, string $alias = 'nvl_translation')
  * @method static Builder<static> whereTranslated(string $field, mixed $operator, mixed $value = TranslationComparisonValue::Omitted, ?string $locale = null)
  * @method static Builder<static> whereTranslationNull(string $field, ?string $locale = null)
  * @method static Builder<static> whereTranslationNotNull(string $field, ?string $locale = null)
@@ -192,20 +196,9 @@ trait Translatable
     {
         $options = $this->translationDefinition();
         $options->assertTranslatableField($field);
-        $translations = $this->translationRows();
         $requestedLocale = $options->assertLocale($locale ?? $this->getCurrentLocale());
-        $localeChain = $options->localeChain(
-            $requestedLocale,
-            $this->persistedLocales($translations),
-        );
 
-        return (new TranslationResolver)->resolve(
-            translations: $translations,
-            options: $options,
-            field: $field,
-            requestedLocale: $requestedLocale,
-            localeChain: $localeChain,
-        );
+        return $this->resolveFields($options, [$field], $requestedLocale)[$field];
     }
 
     /**
@@ -224,16 +217,39 @@ trait Translatable
     public function getTranslatedAttributes(?string $locale = null): array
     {
         $definition = $this->translationDefinition();
-        $rows = $this->translationRows();
         $requested = $definition->assertLocale($locale ?? $this->getCurrentLocale());
-        $chain = $definition->localeChain($requested, $this->persistedLocales($rows));
-        $resolver = new TranslationResolver;
+        $resolved = $this->resolveFields($definition, $definition->fields, $requested);
         $values = [];
         foreach ($definition->fields as $field) {
-            $values[$field] = $resolver->resolve($rows, $definition, $field, $requested, $chain)->value;
+            $values[$field] = $resolved[$field]->value;
         }
 
         return $values;
+    }
+
+    /**
+     * @param  list<string>  $fields
+     * @return array<string,TranslationResolution>
+     */
+    private function resolveFields(RelatedTranslationDefinition $definition, array $fields, string $requested): array
+    {
+        $cache = $definition->cacheResolvedValues ? app(RelatedTranslationValueCache::class) : null;
+        $resolved = $cache?->get($this, $definition, $requested) ?? [];
+        $missing = array_diff($fields, array_keys($resolved));
+        if ($missing === []) {
+            return $resolved;
+        }
+
+        $rows = $this->translationRows();
+        $chain = $definition->localeChain($requested, $this->persistedLocales($rows));
+        $resolver = new TranslationResolver;
+        $fresh = [];
+        foreach ($missing as $field) {
+            $fresh[$field] = $resolver->resolve($rows, $definition, $field, $requested, $chain);
+        }
+        $cache?->put($this, $definition, $requested, $fresh);
+
+        return $resolved + $fresh;
     }
 
     /**
@@ -287,6 +303,20 @@ trait Translatable
     }
 
     /**
+     * Left join one exact locale row per owner for qualified filtering and ordering.
+     *
+     * @param  Builder<static>  $query
+     * @return Builder<static>
+     */
+    public function scopeWithJoinedTranslation(Builder $query, ?string $locale = null, string $alias = 'nvl_translation'): Builder
+    {
+        $definition = $this->translationDefinition();
+        $resolved = $definition->assertLocale($locale ?? $this->getCurrentLocale());
+
+        return app(RelatedTranslationJoin::class)->apply($query, $this->newRelatedInstance($definition->translationModel), $definition, $resolved, $alias);
+    }
+
+    /**
      * Filter owners by one validated translated field and exact locale.
      *
      * @param  Builder<static>  $query
@@ -308,7 +338,7 @@ trait Translatable
             $operator = '=';
         }
 
-        $allowedOperators = ['=', '!=', '<>', '<', '<=', '>', '>=', 'like', 'not like'];
+        $allowedOperators = ['=', '!=', '<>', '<', '<=', '>', '>=', 'like', 'not like', 'contains', 'not contains'];
         $normalizedOperator = is_string($operator) ? mb_strtolower($operator) : '';
 
         if (! in_array($normalizedOperator, $allowedOperators, true)) {
@@ -319,9 +349,17 @@ trait Translatable
 
         return app(TranslationOwnership::class)->query($query, $this->translationDefinition())->whereHas(
             'translations',
-            static fn (Builder $translationQuery): Builder => $translationQuery
-                ->where($options->localeKey, $resolvedLocale)
-                ->where($field, $normalizedOperator, $value),
+            static function (Builder $translationQuery) use ($options, $resolvedLocale, $field, $normalizedOperator, $value): void {
+                $translationQuery->where($options->localeKey, $resolvedLocale);
+                if (in_array($normalizedOperator, ['contains', 'not contains'], true)) {
+                    if (! is_string($value)) {
+                        throw new Exceptions\TranslatableException('Translated substring filters require a string.');
+                    }
+                    app(TextMatcher::class)->contains($translationQuery->getQuery(), $translationQuery->getModel()->qualifyColumn($field), $value, negated: $normalizedOperator === 'not contains');
+                } else {
+                    $translationQuery->where($field, $normalizedOperator, $value);
+                }
+            },
         );
     }
 

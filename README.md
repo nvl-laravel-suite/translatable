@@ -48,6 +48,14 @@ Give related rows a foreign key and unique (foreign key, locale) index. Give gro
 
 For a collection projection, use `RelatedTranslationStore::rowsForOwners($owners)` with a list of at most 1,000 related-table owner models. It loads missing relations in concrete storage groups and returns native translation collections in input order. Canonical owner identity, every loaded child, actual connection and current Ownership admission are validated together. Already loaded unowned batches use two fresh metadata probes per storage group for either one or 25 owners. Individual loaded model reads use one fresh probe instead of three; they deliberately recheck admission on every access. No authorization or schema result is cached across operations, so later adoption and scope changes still deny retained models.
 
+Use `Article::query()->withJoinedTranslation('bg')` to filter or sort by an exact related locale. The left join exposes `nvl_translation.<field>` and retains the owner selection and identity. Explicitly add projections with aliases when the result needs translated SQL columns. Supply a distinct second argument to join another locale. Owners without that locale remain visible. If a legacy table contains duplicates, the join selects the lowest translation primary key and Doctor can report incompatible storage.
+
+`whereTranslated('title', 'contains', $search, 'bg')` uses Core's text matcher for a literal substring. Use `not contains` for its complement among non-null values in the selected locale. Resource search also uses the shared matcher.
+
+A host can bind its existing related table through `RelatedTranslationDefinition` using its translation model, owner key, foreign key and locale key. Run Doctor against the populated source and check locale uniqueness and ownership before switching application reads. For a soft-deleting locale table, set `deletedRowPolicy: RelatedTranslationDeletedRowPolicy::Restore` to reuse a single matching deleted row under the owner lock. The default reports a soft-deleted row that blocks the unique key and allows a fresh active row when the schema already permits historical duplicates.
+
+Set `cacheResolvedValues: true` on a related definition to reuse resolved scalar values within the current request or job. Related mutations invalidate the owner's entries. Owned storage, transactions, and explicitly loaded relations read through their usual source.
+
 ## Register resources and host policy
 
 Register each concrete model under a resource key. The provider can read nvl-translatable.resources, or the host can register at boot:

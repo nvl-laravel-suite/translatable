@@ -13,8 +13,12 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Process\Process;
 
 it('serializes competing tenant locale creation in separate PostgreSQL processes', function (): void {
-    if (DB::connection()->getDriverName() !== 'pgsql') {
+    if (getenv('DB_CONNECTION') !== 'pgsql') {
         $this->markTestSkipped('The required concurrency gate needs PostgreSQL; SQLite is not concurrency evidence.');
+    }
+    $database = DB::connection('pgsql');
+    if (preg_match('/^nvl_translatable_test_[a-f0-9]{8}_ci$/D', $database->getDatabaseName()) !== 1) {
+        throw new RuntimeException('The concurrency gate requires a dedicated PostgreSQL package test database.');
     }
 
     $redisSocket = getenv('REDIS_SOCKET');
@@ -30,9 +34,10 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
     $barrier = 'nvl:translatable:race:'.bin2hex(random_bytes(12));
     $files = new Filesystem;
     $redis = new Redis;
+    $actors = [];
 
     try {
-        DB::statement('create schema "'.$schema.'"');
+        $database->statement('create schema "'.$schema.'"');
         $files->mirror($source, $fixture);
         $files->mkdir([
             $fixture.'/app',
@@ -75,7 +80,6 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
             $redis->connect((string) $redisHost, (int) ($environment['REDIS_PORT']));
         }
 
-        $actors = [];
         foreach (['Race A', 'Race B'] as $value) {
             $actors[$value] = new Process([
                 PHP_BINARY,
@@ -109,11 +113,20 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
         expect($ready)->toBe(2, "Both PostgreSQL actors must reach the Redis barrier before release.\n".$actorDiagnostics);
         $redis->set($barrier, 'go', ['ex' => 20]);
 
+        $committed = [];
+        $stale = [];
         foreach ($actors as $value => $actor) {
             $actor->wait();
             expect($actor->isSuccessful())->toBeTrue($value.': '.$actor->getOutput().$actor->getErrorOutput())
-                ->and($actor->getOutput())->toContain('driver=pgsql', 'race=ok');
+                ->and($actor->getOutput())->toContain('driver=pgsql');
+            if (str_contains($actor->getOutput(), 'race=committed')) {
+                $committed[] = $value;
+            }
+            if (str_contains($actor->getOutput(), 'race=stale')) {
+                $stale[] = $value;
+            }
         }
+        expect($committed)->toHaveCount(1)->and($stale)->toHaveCount(1);
 
         $pdo = new PDO(
             'pgsql:host='.$environment['DB_HOST'].';port='.$environment['DB_PORT'].';dbname='.$environment['DB_DATABASE'],
@@ -127,7 +140,7 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
         $tenantBBulgarian = array_values(array_filter($rows, static fn (array $row): bool => $row['tenant_id'] === TenantTranslationScenario::B && $row['locale'] === 'bg'));
 
         expect($tenantABulgarian)->toHaveCount(1)
-            ->and($tenantABulgarian[0]['name'])->toBeIn(['Race A', 'Race B'])
+            ->and($tenantABulgarian[0]['name'])->toBe($committed[0])
             ->and($tenantBBulgarian)->toBe([['tenant_id' => TenantTranslationScenario::B, 'locale' => 'bg', 'name' => 'B requested']]);
 
         $inspect = new Process([
@@ -143,6 +156,9 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
         expect($inspection['version'])->toMatch('/^[a-f0-9]{64}$/')
             ->and($inspection['locale_count'])->toBe(2);
     } finally {
+        foreach ($actors as $actor) {
+            $actor->stop();
+        }
         if ($redis->isConnected()) {
             $redis->del([
                 $barrier,
@@ -150,7 +166,7 @@ it('serializes competing tenant locale creation in separate PostgreSQL processes
                 $barrier.':ready:'.hash('sha256', 'Race B'),
             ]);
         }
-        DB::statement('drop schema if exists "'.$schema.'" cascade');
+        $database->statement('drop schema if exists "'.$schema.'" cascade');
         $files->remove($fixture);
     }
 });

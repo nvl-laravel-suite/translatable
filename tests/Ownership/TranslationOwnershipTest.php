@@ -43,6 +43,13 @@ it('keeps related translations in their persisted native owner partition', funct
                 ->and(OwnershipRelatedTranslation::query()->count())->toBe(1);
         });
     }
+    foreach ([7, 8] as $id) {
+        $runner->run(OwnershipCompany::query()->findOrFail($id), $actor, function () use ($id): void {
+            $joined = OwnershipRelatedRecord::query()->withJoinedTranslation('en')->addSelect('nvl_translation.name as joined_name')->sole();
+            expect($joined->getKey())->toBe($id * 10)
+                ->and($joined->getAttribute('joined_name'))->toBe('Owner '.$id);
+        });
+    }
 });
 
 it('revalidates batch rows and canonical owners after leaving their admitted scope', function (): void {

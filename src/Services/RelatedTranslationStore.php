@@ -8,11 +8,13 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Nvl\Support\Ownership\Contracts\OwnershipBoundary;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
+use Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy;
 use Nvl\Translatable\Exceptions\TranslatableException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 
@@ -86,6 +88,7 @@ final readonly class RelatedTranslationStore
         }
 
         $query->delete();
+        $this->forgetResolvedValues($canonicalOwner, $definition);
     }
 
     /**
@@ -104,7 +107,10 @@ final readonly class RelatedTranslationStore
         );
         $query->getQuery()->getQuery()->where($definition->localeKey, $locale);
 
-        return $query->delete() > 0;
+        $deleted = $query->delete() > 0;
+        $this->forgetResolvedValues($canonicalOwner, $definition);
+
+        return $deleted;
     }
 
     /**
@@ -323,7 +329,7 @@ final readonly class RelatedTranslationStore
             $definition->localeKey => $locale,
         ];
         $translation = Model::unguarded(
-            fn (): Model => $this->firstOrCreate($relation, $identity, $attributes),
+            fn (): Model => $this->firstOrCreate($relation, $identity, $attributes, $definition->deletedRowPolicy),
         );
 
         foreach ([...$attributes, ...$identity] as $field => $value) {
@@ -333,6 +339,7 @@ final readonly class RelatedTranslationStore
         if ($translation->isDirty()) {
             $translation->save();
         }
+        $this->forgetResolvedValues($canonicalOwner, $definition);
 
         return $translation;
     }
@@ -348,9 +355,27 @@ final readonly class RelatedTranslationStore
         HasMany $relation,
         array $identity,
         array $values,
+        RelatedTranslationDeletedRowPolicy $policy,
     ): Model {
         if (($translation = $this->find($relation, $identity)) instanceof Model) {
             return $translation;
+        }
+        if ($policy === RelatedTranslationDeletedRowPolicy::Restore) {
+            $deleted = $this->deletedRows($relation, $identity);
+            if ($deleted->count() > 1) {
+                throw new TranslatableException('Several soft-deleted translation rows match the same owner and locale.');
+            }
+            $translation = $deleted->first();
+            if ($translation instanceof Model && method_exists($translation, 'restore')) {
+                foreach ($values as $field => $value) {
+                    $translation->setAttribute($field, $value);
+                }
+                if ($translation->restore() !== true) {
+                    throw new TranslatableException('Restoring the soft-deleted translation row was interrupted.');
+                }
+
+                return $translation;
+            }
         }
 
         try {
@@ -373,6 +398,9 @@ final readonly class RelatedTranslationStore
             $lookup = clone $relation;
             $lookup->getQuery()->useWritePdo();
             $translation = $this->find($lookup, $identity);
+            if ($translation === null && $this->deletedRows($lookup, $identity)->isNotEmpty()) {
+                throw new TranslatableException('A soft-deleted translation row blocks this owner and locale.', previous: $exception);
+            }
 
             return $translation ?? throw $exception;
         }
@@ -386,13 +414,50 @@ final readonly class RelatedTranslationStore
      */
     private function find(HasMany $relation, array $identity): ?Model
     {
+        return $this->identityLookup($relation, $identity)->first();
+    }
+
+    /**
+     * @param  HasMany<Model, *>  $relation
+     * @param  array<string,mixed>  $identity
+     * @return Collection<int,Model>
+     */
+    private function deletedRows(HasMany $relation, array $identity): Collection
+    {
+        $model = $relation->getRelated();
+        if (! in_array(SoftDeletes::class, class_uses_recursive($model), true) || ! method_exists($model, 'getDeletedAtColumn')) {
+            return new Collection;
+        }
+        $column = $model->getDeletedAtColumn();
+        if (! is_string($column) || $column === '') {
+            throw new TranslatableException('A soft-deleting translation model requires a valid deleted-at column.');
+        }
+        $query = $this->identityLookup($relation, $identity)->getQuery();
+        $query->withoutGlobalScope(SoftDeletingScope::class)->useWritePdo()->lockForUpdate()->limit(2);
+        $query->getQuery()->whereNotNull($model->qualifyColumn($column));
+
+        return $query->get();
+    }
+
+    /**
+     * @param  HasMany<Model, *>  $relation
+     * @param  array<string,mixed>  $identity
+     * @return HasMany<Model,*>
+     */
+    private function identityLookup(HasMany $relation, array $identity): HasMany
+    {
         $lookup = clone $relation;
 
         foreach ($identity as $column => $value) {
             $lookup->getQuery()->getQuery()->where($column, $value);
         }
 
-        return $lookup->first();
+        return $lookup;
+    }
+
+    private function forgetResolvedValues(Model $owner, RelatedTranslationDefinition $definition): void
+    {
+        app(RelatedTranslationValueCache::class)->forget($owner, $definition);
     }
 
     /**
