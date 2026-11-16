@@ -5,6 +5,8 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [7.2.0] - 2026-11-16
+
 ### Changed
 
 - Deleted-row policy is enforced without relying on a unique-index error: `Reject` now refuses a soft-deleted blocker even without a unique index, and several active rows for one owner and locale throw "Several active translation rows match the same owner and locale."
@@ -16,6 +18,12 @@ All notable changes to `nvl/translatable` are documented here.
 ### Fixed
 
 - Search supports host text matchers that return a new builder.
+
+<!-- NVL GENERATED CHANGES START -->
+### Changed
+
+- adoption flow, PostgreSQL proof, release health and 7.2 floors
+<!-- NVL GENERATED CHANGES END -->
 
 ## [7.1.0] - 2026-11-16
 
