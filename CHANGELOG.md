@@ -5,6 +5,8 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [7.3.0] - 2026-11-17
+
 ### Changed
 
 - Doctor now fails a KeepHistory definition whose table still has a complete unique index on (owner_scope_key, owner foreign key, locale) or (owner foreign key, locale) beside the active-only index, and names that index, including a PostgreSQL index left ready but invalid by a failed concurrent build. Such an index blocked recreating a soft-deleted locale.
@@ -13,6 +15,12 @@ All notable changes to `nvl/translatable` are documented here.
 
 - Self-translation writers lock the whole group, soft-deleted rows included, in primary-key order before reselecting the representative row. Writers entering one group through different locale rows now queue instead of deadlocking on PostgreSQL (40P01).
 - A model observer that vetoes a translation save now throws `TranslatableException` and rolls back the whole locale batch. Previously earlier locales committed and `TranslationResourceSynced` still fired.
+
+<!-- NVL GENERATED CHANGES START -->
+### Changed
+
+- implement the Final spec audit for one release
+<!-- NVL GENERATED CHANGES END -->
 
 ## [7.2.0] - 2026-11-16
 
