@@ -130,6 +130,7 @@ public static function tryFrom(string|int $value): ?static
 
 ```text
 enum Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy implements BackedEnum, UnitEnum: string
+public const Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy KeepHistory=Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy::KeepHistory="keep_history"
 public const Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy Reject=Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy::Reject="reject"
 public const Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy Restore=Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy::Restore="restore"
 public readonly string $name

@@ -345,7 +345,9 @@ final readonly class RelatedTranslationStore
     }
 
     /**
-     * Find or create a related row while containing unique-key races in a savepoint.
+     * Find, restore or create one related row under the owner lock, enforcing the deleted-row policy without a unique index.
+     *
+     * The savepoint and unique-key handler remain a backstop for writers that bypass the owner lock.
      *
      * @param  HasMany<Model, *>  $relation
      * @param  array<string, mixed>  $identity
@@ -357,11 +359,19 @@ final readonly class RelatedTranslationStore
         array $values,
         RelatedTranslationDeletedRowPolicy $policy,
     ): Model {
-        if (($translation = $this->find($relation, $identity)) instanceof Model) {
-            return $translation;
+        $active = $this->activeRows($relation, $identity);
+        if ($active->count() > 1) {
+            throw new TranslatableException('Several active translation rows match the same owner and locale.');
+        }
+        if ($active->isNotEmpty()) {
+            return $active->first();
+        }
+
+        $deleted = $this->deletedRows($relation, $identity);
+        if ($deleted->isNotEmpty() && $policy === RelatedTranslationDeletedRowPolicy::Reject) {
+            throw new TranslatableException('A soft-deleted translation row blocks this owner and locale.');
         }
         if ($policy === RelatedTranslationDeletedRowPolicy::Restore) {
-            $deleted = $this->deletedRows($relation, $identity);
             if ($deleted->count() > 1) {
                 throw new TranslatableException('Several soft-deleted translation rows match the same owner and locale.');
             }
@@ -415,6 +425,18 @@ final readonly class RelatedTranslationStore
     private function find(HasMany $relation, array $identity): ?Model
     {
         return $this->identityLookup($relation, $identity)->first();
+    }
+
+    /**
+     * Lock up to two active rows for one owner and locale on the writer connection.
+     *
+     * @param  HasMany<Model, *>  $relation
+     * @param  array<string,mixed>  $identity
+     * @return Collection<int,Model>
+     */
+    private function activeRows(HasMany $relation, array $identity): Collection
+    {
+        return $this->identityLookup($relation, $identity)->getQuery()->useWritePdo()->lockForUpdate()->limit(2)->get();
     }
 
     /**

@@ -9,6 +9,7 @@ use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Schema\Builder;
 use Nvl\Support\Contracts\LocaleCatalog;
 use Nvl\Support\Locales\LocaleCatalogDiagnostics;
@@ -16,6 +17,7 @@ use Nvl\Support\Ownership\Contracts\OwnershipReadiness;
 use Nvl\Support\Ownership\Services\OwnershipResourceRegistry;
 use Nvl\Translatable\Contracts\TranslatableModel;
 use Nvl\Translatable\Contracts\TranslatableResourceModel;
+use Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
@@ -391,11 +393,18 @@ final readonly class TranslationDoctor
 
         $localeColumns = [$foreignKey, $definition->localeKey];
         $scopedColumns = [...$partitionColumns, ...$localeColumns];
-        if (! $this->hasUniqueIndex($translationSchema, $translationTable, $scopedColumns)
+        $deletedAt = null;
+        if ($definition->deletedRowPolicy === RelatedTranslationDeletedRowPolicy::KeepHistory) {
+            $deletedAt = $this->deletedAtColumn($translationModel);
+            if ($deletedAt === null) {
+                $errors[] = "Resource [{$resource->key}] uses the KeepHistory deleted-row policy and requires a soft-deleting translation model.";
+            }
+        }
+        if (! $this->hasIdentityIndex($translationSchema, $translationTable, $scopedColumns, $deletedAt)
             && ! ($nativePartition && $sameConnection && $cascades
-                && $this->hasUniqueIndex($translationSchema, $translationTable, $localeColumns, requireComplete: true)
+                && $this->hasIdentityIndex($translationSchema, $translationTable, $localeColumns, $deletedAt)
                 && $this->hasUniqueIndex($ownerSchema, $model->getTable(), [$definition->ownerKey], requireComplete: true))) {
-            $this->reportMissingUniqueIndex($resource, $translationTable, $scopedColumns, $errors);
+            $this->reportMissingUniqueIndex($resource, $translationTable, $scopedColumns, $errors, $deletedAt);
         }
 
         if (! is_array($matchingForeignKey)) {
@@ -663,6 +672,89 @@ final readonly class TranslationDoctor
         });
     }
 
+    /**
+     * Match the identity index a definition needs: complete, or active-only for a KeepHistory soft-delete column.
+     *
+     * @param  list<string>  $columns
+     */
+    private function hasIdentityIndex(Builder $schema, string $table, array $columns, ?string $activeOnlyColumn): bool
+    {
+        return $activeOnlyColumn === null
+            ? $this->hasUniqueIndex($schema, $table, $columns)
+            : $this->hasActiveOnlyUniqueIndex($schema, $table, $columns, $activeOnlyColumn);
+    }
+
+    /**
+     * Match a unique index over the exact columns whose only predicate keeps it to active rows.
+     *
+     * @param  list<string>  $columns
+     */
+    private function hasActiveOnlyUniqueIndex(Builder $schema, string $table, array $columns, string $deletedAt): bool
+    {
+        sort($columns);
+
+        return array_any($schema->getIndexes($table), function (array $index) use ($schema, $table, $columns, $deletedAt): bool {
+            $actual = $index['columns'];
+            sort($actual);
+
+            return $index['unique'] && ! $index['primary'] && $actual === $columns
+                && $this->isActiveOnlyIndex($schema, $table, $index['name'], $deletedAt);
+        });
+    }
+
+    /** Confirm the index is limited by exactly `<deleted_at> IS NULL` and has no hidden expression keys. */
+    private function isActiveOnlyIndex(Builder $schema, string $table, string $index, string $deletedAt): bool
+    {
+        [$namespace, $table] = $schema->parseSchemaAndTable($table);
+        $connection = $schema->getConnection();
+        $physicalTable = $connection->getTablePrefix().$table;
+
+        if ($connection->getDriverName() === 'pgsql') {
+            return $connection->scalar(
+                'select 1 from pg_index i join pg_class t on t.oid = i.indrelid'
+                .' join pg_namespace n on n.oid = t.relnamespace join pg_class x on x.oid = i.indexrelid'
+                .' where t.relname = ? and n.nspname = coalesce(?, current_schema()) and lower(x.relname) = ?'
+                .' having count(*) = 1 and bool_and(i.indisunique and i.indisvalid and i.indisready and i.indexprs is null'
+                ." and pg_get_expr(i.indpred, i.indrelid) = '(' || quote_ident(?) || ' IS NULL)')",
+                [$physicalTable, $namespace, $index, $deletedAt],
+                false,
+            ) !== null;
+        }
+        if ($connection->getDriverName() !== 'sqlite') {
+            return false;
+        }
+        $namespace ??= 'main';
+        $definition = $connection->scalar(
+            'select m.sql from pragma_index_list(?, ?) l join '.$connection->getQueryGrammar()->wrap($namespace).'.sqlite_master m'
+            ." on m.type = 'index' and lower(m.name) = lower(l.name)"
+            .' where lower(l.name) = ? and l.partial = 1'
+            .' and not exists (select 1 from pragma_index_info(l.name, ?) where cid < 0)',
+            [$physicalTable, $namespace, $index, $namespace],
+            false,
+        );
+        if (! is_string($definition) || preg_match('/\swhere\s(.+)$/is', $definition, $matches) !== 1) {
+            return false;
+        }
+        $predicate = mb_strtolower((string) preg_replace('/\s+/', ' ', str_replace(['"', '`', '[', ']'], '', $matches[1])));
+        $predicate = trim($predicate);
+        while (str_starts_with($predicate, '(') && str_ends_with($predicate, ')')) {
+            $predicate = trim(mb_substr($predicate, 1, -1));
+        }
+
+        return $predicate === mb_strtolower($deletedAt).' is null';
+    }
+
+    /** Return the soft-delete column of a translation model, or null when it does not soft-delete. */
+    private function deletedAtColumn(Model $translationModel): ?string
+    {
+        if (! in_array(SoftDeletes::class, class_uses_recursive($translationModel), true) || ! method_exists($translationModel, 'getDeletedAtColumn')) {
+            return null;
+        }
+        $column = $translationModel->getDeletedAtColumn();
+
+        return is_string($column) && $column !== '' ? $column : null;
+    }
+
     /** Confirm the index enforces uniqueness for every row and has no hidden expression keys. */
     private function isCompleteIndex(Builder $schema, string $table, string $index): bool
     {
@@ -696,11 +788,21 @@ final readonly class TranslationDoctor
      * @param  list<string>  $columns
      * @param  list<string>  $errors
      */
-    private function reportMissingUniqueIndex(TranslationResourceDefinition $resource, string $table, array $columns, array &$errors): void
+    private function reportMissingUniqueIndex(TranslationResourceDefinition $resource, string $table, array $columns, array &$errors, ?string $activeOnlyColumn = null): void
     {
+        if ($activeOnlyColumn !== null) {
+            $index = $table.'_'.implode('_', $columns).'_active_unique';
+            $errors[] = "Resource [{$resource->key}] table [{$table}] requires an active-only unique index [{$index}] on ["
+                .implode(', ', $columns)."] WHERE {$activeOnlyColumn} IS NULL. Its KeepHistory policy keeps soft-deleted rows as history, so a complete index would block new rows."
+                .' Remove duplicate active rows, then add it in a host migration with CREATE UNIQUE INDEX '.$index.' ON '.$table
+                .' ('.implode(', ', $columns).") WHERE {$activeOnlyColumn} IS NULL.";
+
+            return;
+        }
         $index = $table.'_'.implode('_', $columns).'_unique';
         $errors[] = "Resource [{$resource->key}] table [{$table}] requires a unique index [{$index}] on ["
-            .implode(', ', $columns).'].';
+            .implode(', ', $columns).']. Remove duplicate rows, then add it in a host migration with $table->unique([\''
+            .implode("', '", $columns)."'], '{$index}'); and keep deleted_at out of the index so a soft-deleted row still reserves its identity.";
     }
 
     /**

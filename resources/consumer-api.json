@@ -101,6 +101,7 @@
                 "value"
             ],
             "constants": [
+                "KeepHistory",
                 "Reject",
                 "Restore"
             ]

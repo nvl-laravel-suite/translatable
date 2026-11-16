@@ -12,6 +12,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Support\Contracts\TextMatcher;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
 use Nvl\Translatable\Enums\TranslationStorageStrategy;
@@ -28,6 +29,7 @@ use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Fixtures\CloningTextMatcher;
 use Nvl\Translatable\Tests\Support\TestAllowEmptySelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 
@@ -361,6 +363,28 @@ test('it gathers searches and reports logical self-translated resources', functi
         ->and($missing->items()[0]['id'])->toBe('catalog.second')
         ->and($searched->total())->toBe(1)
         ->and($searched->items()[0]['translations']['en']['name'])->toBe('Second searchable');
+});
+
+test('self translated search keeps every column and the resource scope when a host matcher returns a cloned builder', function (): void {
+    app()->bind(TextMatcher::class, CloningTextMatcher::class);
+    app()->forgetInstance(TranslationResourceGatherer::class);
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.scoped-self-search',
+        modelClass: TestSelfTranslatableModel::class,
+        label: 'Scoped self search',
+        searchableColumns: ['entry_key', 'name'],
+        displayColumns: ['entry_key'],
+        orderColumn: 'entry_key',
+        queryScope: static fn (Builder $query): Builder => $query->where('type', 'system'),
+    );
+    TestSelfTranslatableModel::create(['entry_key' => 'alpha', 'locale' => 'en', 'name' => 'Alpha Searchable', 'type' => 'system']);
+    TestSelfTranslatableModel::create(['entry_key' => 'searchable.beta', 'locale' => 'en', 'name' => 'Beta', 'type' => 'system']);
+    TestSelfTranslatableModel::create(['entry_key' => 'gamma', 'locale' => 'en', 'name' => 'Gamma', 'type' => 'system']);
+    TestSelfTranslatableModel::create(['entry_key' => 'hidden', 'locale' => 'en', 'name' => 'Hidden searchable', 'type' => 'private']);
+
+    $page = app(TranslationResourceGatherer::class)->gather('tests.scoped-self-search', SystemActor::Background, ['search' => 'SEARCHABLE', 'per_page' => 10]);
+
+    expect(array_column($page->items(), 'id'))->toBe(['alpha', 'searchable.beta']);
 });
 
 test('it centrally synchronizes and deletes grouped resource locales by logical key', function (): void {

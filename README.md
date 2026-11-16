@@ -52,7 +52,13 @@ Use `Article::query()->withJoinedTranslation('bg')` to filter or sort by an exac
 
 `whereTranslated('title', 'contains', $search, 'bg')` uses Core's text matcher for a literal substring. Use `not contains` for its complement among non-null values in the selected locale. Resource search also uses the shared matcher.
 
-A host can bind its existing related table through `RelatedTranslationDefinition` using its translation model, owner key, foreign key and locale key. Run Doctor against the populated source and check locale uniqueness and ownership before switching application reads. For a soft-deleting locale table, set `deletedRowPolicy: RelatedTranslationDeletedRowPolicy::Restore` to reuse a single matching deleted row under the owner lock. The default reports a soft-deleted row that blocks the unique key and allows a fresh active row when the schema already permits historical duplicates.
+A host can bind its existing related table through `RelatedTranslationDefinition` using its translation model, owner key, foreign key and locale key. Run Doctor against the populated source and check locale uniqueness and ownership before switching application reads. For a soft-deleting locale table, set `deletedRowPolicy: RelatedTranslationDeletedRowPolicy::Restore` to reuse a single matching deleted row under the owner lock. The default `Reject` policy refuses to write while a soft-deleted row holds the same owner and locale. Both policies are checked under the owner lock. When the write runs inside a transaction, as `TranslationWriter` does, they hold even on a table without a unique index. Several active rows for one owner and locale are always rejected; under these two policies, several deleted rows are rejected too. A table that deliberately keeps deleted locale rows as history, with a unique index limited to active rows (`WHERE deleted_at IS NULL`), sets `deletedRowPolicy: RelatedTranslationDeletedRowPolicy::KeepHistory` to add a fresh active row next to them. Doctor requires that active-only index for KeepHistory; a complete index would block the new rows.
+
+Still add a complete owner and locale unique index in a host migration. Use the definition's partition and foreign-key columns, and leave out `owner_scope_key` for unowned storage:
+
+    $table->unique(['owner_scope_key', 'article_id', 'locale'], 'article_translation_identity_unique');
+
+Do not add `deleted_at` to the index: a soft-deleted row must keep reserving its owner and locale. Clean up existing duplicates before adding it.
 
 Set `cacheResolvedValues: true` on a related definition to reuse resolved scalar values within the current request or job. Related mutations invalidate the owner's entries. Owned storage, transactions, and explicitly loaded relations read through their usual source.
 

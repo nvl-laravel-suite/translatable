@@ -6,16 +6,15 @@ if (! in_array(dirname(__DIR__).'/Pest.php', get_included_files(), true)) {
     uses('Nvl\\Translatable\\Tests\\TestCase');
 }
 
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Support\Contracts\TextMatcher;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\Ownership\Exceptions\OwnershipSchemaNotReady;
 use Nvl\Support\Ownership\Exceptions\OwnershipViolation;
 use Nvl\Support\Ownership\Services\OwnershipStorageProbes;
 use Nvl\Support\Ownership\Services\OwnershipStorageTables;
-use Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy;
 use Nvl\Translatable\Enums\TranslationFallbackPolicy;
 use Nvl\Translatable\Enums\TranslationMutationPolicy;
 use Nvl\Translatable\Enums\TranslationSyncMode;
@@ -30,33 +29,13 @@ use Nvl\Translatable\Services\TranslationOwnership;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Fixtures\CloningTextMatcher;
+use Nvl\Translatable\Tests\Support\RelatedLegacyOwner;
+use Nvl\Translatable\Tests\Support\RelatedLegacyRow;
 use Nvl\Translatable\Tests\Support\TestSelfTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTimestampedTranslation;
 use Nvl\Translatable\Tests\Support\TestTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestTranslatableModelTranslation;
-
-final class RelatedLegacyOwner extends TestTranslatableModel
-{
-    protected function defineTranslations(): RelatedTranslationDefinition
-    {
-        return new RelatedTranslationDefinition(
-            translationModel: RelatedLegacyRow::class,
-            foreignKey: 'test_translatable_model_id',
-            fields: ['name', 'description'],
-            fallbackLocales: ['en'],
-            locales: ['en', 'bg', 'en-GB'],
-            deletedRowPolicy: config('nvl-translatable.test_restore_deleted', false) ? RelatedTranslationDeletedRowPolicy::Restore : RelatedTranslationDeletedRowPolicy::Reject,
-            cacheResolvedValues: true,
-        );
-    }
-}
-
-final class RelatedLegacyRow extends TestTranslatableModelTranslation
-{
-    use SoftDeletes;
-
-    public const string DELETED_AT = 'archived_at';
-}
 
 beforeEach(function (): void {
     config()->set('nvl-translatable.locales', ['en', 'bg', 'en-GB']);
@@ -123,9 +102,25 @@ it('matches Unicode translated substrings with literal wildcards and exact local
         ->and(TestTranslatableModel::query()->whereTranslated('name', 'contains', 'снимка', 'en')->count())->toBe(0);
 });
 
-it('restores or rejects a soft-deleted exact related row according to the model policy', function (bool $restore): void {
+it('keeps translated substring filters when a host matcher returns a cloned builder', function (): void {
+    app()->bind(TextMatcher::class, CloningTextMatcher::class);
+    foreach (['alpha' => ['bg', 'Alpha Snapshot'], 'beta' => ['bg', 'snapshot beta'], 'gamma' => ['bg', 'Gamma'], 'english' => ['en', 'Snapshot English']] as $slug => [$locale, $name]) {
+        $owner = TestTranslatableModel::query()->create(['slug' => $slug]);
+        DB::table('test_translatable_models_i18n')->insert(['test_translatable_model_id' => $owner->id, 'locale' => $locale, 'name' => $name]);
+    }
+
+    expect(TestTranslatableModel::query()->whereTranslated('name', 'contains', 'SNAPSHOT', 'bg')->orderBy('slug')->pluck('slug')->all())->toBe(['alpha', 'beta'])
+        ->and(TestTranslatableModel::query()->whereTranslated('name', 'not contains', 'SNAPSHOT', 'bg')->orderBy('slug')->pluck('slug')->all())->toBe(['gamma']);
+});
+
+it('restores or rejects a soft-deleted exact related row according to the model policy', function (bool $restore, bool $uniqueIndex): void {
     config()->set('nvl-translatable.test_restore_deleted', $restore);
-    Schema::table('test_translatable_models_i18n', static fn (Blueprint $table) => $table->softDeletes('archived_at'));
+    Schema::table('test_translatable_models_i18n', static function (Blueprint $table) use ($uniqueIndex): void {
+        $table->softDeletes('archived_at');
+        if (! $uniqueIndex) {
+            $table->dropUnique('translatable_unique');
+        }
+    });
     $owner = RelatedLegacyOwner::query()->create(['slug' => 'legacy']);
     $store = app(RelatedTranslationStore::class);
     $definition = $owner->translationDefinition();
@@ -139,9 +134,11 @@ it('restores or rejects a soft-deleted exact related row according to the model 
             ->and($owner->translated('name', 'bg'))->toBe('Restored');
     } else {
         expect($upsert)->toThrow(TranslatableException::class, 'soft-deleted')
-            ->and($owner->getTranslation('bg', withFallback: false))->toBeNull();
+            ->and($owner->getTranslation('bg', withFallback: false))->toBeNull()
+            ->and(RelatedLegacyRow::onlyTrashed()->sole()->getKey())->toBe($initial->getKey());
     }
-})->with(['restore' => true, 'reject' => false]);
+    expect(DB::table('test_translatable_models_i18n')->count())->toBe(1);
+})->with(['restore' => true, 'reject' => false])->with(['with unique index' => true, 'without unique index' => false]);
 
 it('invalidates opt-in related value caching after writer mutations and bypasses it inside a transaction', function (): void {
     Schema::table('test_translatable_models_i18n', static fn (Blueprint $table) => $table->softDeletes('archived_at'));

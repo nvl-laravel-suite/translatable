@@ -355,7 +355,7 @@ trait Translatable
                     if (! is_string($value)) {
                         throw new Exceptions\TranslatableException('Translated substring filters require a string.');
                     }
-                    app(TextMatcher::class)->contains($translationQuery->getQuery(), $translationQuery->getModel()->qualifyColumn($field), $value, negated: $normalizedOperator === 'not contains');
+                    $translationQuery->setQuery(app(TextMatcher::class)->contains($translationQuery->getQuery(), $translationQuery->getModel()->qualifyColumn($field), $value, negated: $normalizedOperator === 'not contains'));
                 } else {
                     $translationQuery->where($field, $normalizedOperator, $value);
                 }

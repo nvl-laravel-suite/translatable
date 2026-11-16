@@ -478,21 +478,16 @@ final readonly class TranslationResourceGatherer
                     $query->whereColumn("{$alias}.{$column}", "{$table}.{$column}");
                 }
 
-                $query
-                    ->whereColumn(
-                        "{$alias}.{$definition->groupKey}",
-                        "{$table}.{$definition->groupKey}",
-                    )
-                    ->where(function (QueryBuilder $nested) use (
-                        $alias,
-                        $resource,
-                        $term,
-                    ): void {
-                        $matcher = $this->textMatcher ?? app(TextMatcher::class);
-                        foreach ($resource->searchableColumns as $index => $column) {
-                            $matcher->contains($nested, "{$alias}.{$column}", $term, boolean: $index === 0 ? 'and' : 'or');
-                        }
-                    });
+                $query->whereColumn(
+                    "{$alias}.{$definition->groupKey}",
+                    "{$table}.{$definition->groupKey}",
+                );
+                $matcher = $this->textMatcher ?? app(TextMatcher::class);
+                $nested = $query->forNestedWhere();
+                foreach ($resource->searchableColumns as $index => $column) {
+                    $nested = $matcher->contains($nested, "{$alias}.{$column}", $term, boolean: $index === 0 ? 'and' : 'or');
+                }
+                $query->addNestedWhereQuery($nested);
             },
         );
     }
@@ -507,7 +502,7 @@ final readonly class TranslationResourceGatherer
     {
         $matcher = $this->textMatcher ?? app(TextMatcher::class);
         foreach ($columns as $index => $column) {
-            $matcher->contains($builder->getQuery(), $column, $term, boolean: $index === 0 ? 'and' : 'or');
+            $builder->setQuery($matcher->contains($builder->getQuery(), $column, $term, boolean: $index === 0 ? 'and' : 'or'));
         }
     }
 

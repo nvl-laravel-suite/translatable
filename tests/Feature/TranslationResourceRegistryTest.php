@@ -15,9 +15,11 @@ use Illuminate\Foundation\Auth\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Schema;
+use Nvl\Support\Contracts\TextMatcher;
 use Nvl\Support\Enums\SystemActor;
 use Nvl\Support\OwnerRegistry;
 use Nvl\Translatable\Contracts\TranslationResourceAuthorizer;
+use Nvl\Translatable\Enums\RelatedTranslationDeletedRowPolicy;
 use Nvl\Translatable\Enums\TranslationResourceAbility;
 use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Events\TranslationResourceLocaleDeleted;
@@ -31,7 +33,10 @@ use Nvl\Translatable\Services\TranslationResourceGatherer;
 use Nvl\Translatable\Services\TranslationResourceRegistry;
 use Nvl\Translatable\Services\TranslationResourceVersioner;
 use Nvl\Translatable\Services\TranslationWriter;
+use Nvl\Translatable\Tests\Fixtures\CloningTextMatcher;
 use Nvl\Translatable\Tests\Support\ConfiguredTranslatableModel;
+use Nvl\Translatable\Tests\Support\RelatedIdentitySchema;
+use Nvl\Translatable\Tests\Support\SoftDeletingRelatedOwner;
 use Nvl\Translatable\Tests\Support\TestConnectedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestDomainManagedTranslatableModel;
 use Nvl\Translatable\Tests\Support\TestMismatchedConnectionModel;
@@ -430,6 +435,27 @@ test('it searches only registered owner columns', function (): void {
 
     expect($page->total())->toBe(1)
         ->and($page->items()[0]['attributes']['slug'])->toBe('catalog-one');
+});
+
+test('it keeps owner column search and resource scope when a host matcher returns a cloned builder', function (): void {
+    app()->bind(TextMatcher::class, CloningTextMatcher::class);
+    app()->forgetInstance(TranslationResourceGatherer::class);
+    app(TranslationResourceRegistry::class)->register(
+        key: 'tests.scoped-search',
+        modelClass: TestTranslatableModel::class,
+        label: 'Scoped search',
+        searchableColumns: ['slug'],
+        displayColumns: ['slug'],
+        orderColumn: 'slug',
+        queryScope: static fn (Builder $query): Builder => $query->where('slug', '!=', 'catalog-hidden'),
+    );
+    foreach (['catalog-one', 'new-Catalog', 'other-record', 'catalog-hidden'] as $slug) {
+        TestTranslatableModel::create(['slug' => $slug]);
+    }
+
+    $page = app(TranslationResourceGatherer::class)->gather('tests.scoped-search', SystemActor::Background, ['search' => 'CATALOG', 'per_page' => 10]);
+
+    expect(array_map(static fn (array $item): mixed => $item['attributes']['slug'], $page->items()))->toBe(['catalog-one', 'new-Catalog']);
 });
 
 test('it applies resource query scopes to coverage reads and locked writes', function (): void {
@@ -832,3 +858,58 @@ test('doctor rejects partial unique indexes on unowned related translation table
     expect($report->isHealthy())->toBeFalse()
         ->and(implode("\n", $report->errors))->toContain('requires a unique index');
 });
+
+test('doctor requires a complete owner and locale unique index that leaves deleted_at out', function (?string $index, bool $healthy): void {
+    Schema::table('test_translatable_models_i18n', static function (Blueprint $table): void {
+        $table->dropUnique('resource_translation_unique');
+        $table->softDeletes();
+    });
+    if ($index !== null) {
+        DB::statement($index);
+    }
+
+    $errors = implode("\n", app(TranslationDoctor::class)->inspect()->errors);
+
+    if ($healthy) {
+        expect($errors)->not->toContain('requires a unique index');
+    } else {
+        expect($errors)->toContain('table [test_translatable_models_i18n] requires a unique index')
+            ->toContain("\$table->unique(['test_translatable_model_id', 'locale'], 'test_translatable_models_i18n_test_translatable_model_id_locale_unique');")
+            ->toContain('keep deleted_at out of the index');
+    }
+})->with([
+    'no index' => [null, false],
+    'partial active-only index' => ['CREATE UNIQUE INDEX test_active_locale_unique ON test_translatable_models_i18n (test_translatable_model_id, locale) WHERE deleted_at IS NULL', false],
+    'index containing deleted_at' => ['CREATE UNIQUE INDEX test_deleted_locale_unique ON test_translatable_models_i18n (test_translatable_model_id, locale, deleted_at)', false],
+    'complete index' => ['CREATE UNIQUE INDEX test_complete_locale_unique ON test_translatable_models_i18n (test_translatable_model_id, locale)', true],
+]);
+
+test('doctor requires an active-only unique index for a KeepHistory related definition', function (?string $index, bool $healthy): void {
+    config()->set('nvl-translatable.test_deleted_row_policy', RelatedTranslationDeletedRowPolicy::KeepHistory->value);
+    RelatedIdentitySchema::create(Schema::getFacadeRoot(), uniqueIndex: false);
+    app(TranslationResourceRegistry::class)->register('tests.history', SoftDeletingRelatedOwner::class, 'History models');
+    if ($index !== null) {
+        DB::statement($index);
+    }
+
+    $errors = implode("\n", array_filter(
+        app(TranslationDoctor::class)->inspect()->errors,
+        static fn (string $error): bool => str_starts_with($error, 'Resource [tests.history]'),
+    ));
+
+    if ($healthy) {
+        expect($errors)->toBe('');
+    } else {
+        expect($errors)->toContain('requires an active-only unique index [related_identity_translations_related_identity_owner_id_locale_active_unique]')
+            ->toContain('a complete index would block new rows')
+            ->toContain('CREATE UNIQUE INDEX related_identity_translations_related_identity_owner_id_locale_active_unique ON related_identity_translations (related_identity_owner_id, locale) WHERE deleted_at IS NULL')
+            ->not->toContain('$table->unique(');
+    }
+    RelatedIdentitySchema::drop(Schema::getFacadeRoot());
+})->with([
+    'no index' => [null, false],
+    'complete index' => ['CREATE UNIQUE INDEX history_complete ON related_identity_translations (related_identity_owner_id, locale)', false],
+    'other predicate' => ['CREATE UNIQUE INDEX history_named ON related_identity_translations (related_identity_owner_id, locale) WHERE name IS NOT NULL', false],
+    'active-only index' => ['CREATE UNIQUE INDEX history_active ON related_identity_translations (related_identity_owner_id, locale) WHERE deleted_at IS NULL', true],
+    'quoted active-only index' => ['CREATE UNIQUE INDEX history_quoted ON related_identity_translations (related_identity_owner_id, locale) WHERE ("deleted_at" IS NULL)', true],
+]);

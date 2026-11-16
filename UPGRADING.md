@@ -30,6 +30,8 @@ A resource may be registered by host configuration or TranslationResourceRegistr
 
 Related-table and grouped self-row schemas remain supported. Keep locale uniqueness, owner partition keys, parent foreign keys, and soft-delete behavior. Review version preconditions, fallback, locale normalization, and owner-specific query scopes when porting tests. TranslationDoctor reports native readiness and schema findings.
 
+Reject now refuses a deleted blocker even without a unique index. Add a complete owner+locale unique index. Previously, Reject also inserted a fresh row beside a deleted one when an active-only index allowed it; a table that relies on that history behavior must now declare `deletedRowPolicy: RelatedTranslationDeletedRowPolicy::KeepHistory`.
+
 When a self-row definition explicitly enables `allowDeletingLastTranslation`, a final delete or empty Replace removes the live group. Empty Replace returns a group identity with an empty relation, marked non-persisted after hard deletion or trashed after soft deletion; its event carries the terminal revision. The default remains final-row protection.
 
 Install a fresh standalone application from the package's runtime dependency closure to verify that Data, TypeScript, HTTP extras, and Tenancy are absent. Rebuild configuration caches and restart long-lived workers after changing resource registration or adoption.
