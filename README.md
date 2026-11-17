@@ -101,7 +101,7 @@ TranslationResourceVersioner::version($article) is the supported current revisio
         resourceKey: 'articles',
     );
 
-TranslationWriter starts its own transaction on the model's actual connection, locks and revalidates the canonical resource, checks host authorization, and compares the mandatory expected revision before writing. Patch preserves omitted locales; Replace deletes them. Explicit null is a value and differs from an omitted field. Unsupported locales, undeclared fields, oversized payloads, stale versions, and out-of-scope resources fail before mutation. Events dispatch after commit.
+TranslationWriter starts its own transaction on the model's actual connection, locks and revalidates the canonical resource, checks host authorization, and compares the mandatory expected revision before writing. Patch preserves omitted locales; Replace deletes them. Explicit null is a value and differs from an omitted field. Unsupported locales, undeclared fields, oversized payloads, strings containing a NUL byte, stale versions, and out-of-scope resources fail before mutation. Events dispatch after commit.
 
 For a grouped self-row definition with `allowDeletingLastTranslation: true`, deleting its final locale or replacing it with an empty map removes the visible logical group. Empty Replace returns the group identity and an empty `translations` relation; its model is non-persisted after hard deletion or accurately marked as trashed after soft deletion. The committed event contains the resulting empty-group revision. The group has no live representative for another writer call until the owning domain workflow creates or restores a row. The default definition protects its final locale.
 

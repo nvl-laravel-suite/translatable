@@ -214,7 +214,7 @@ final readonly class TranslationOwnership
         $identities = [];
         foreach (array_values($owners) as $index => $owner) {
             $row = $fresh->get($keys[$index]);
-            if (! $row instanceof Model || $row->getRawOriginal($definition->ownerKey) !== $owner->getRawOriginal($definition->ownerKey) || $row->getRawOriginal('owner_scope_key') !== $owner->getRawOriginal('owner_scope_key')) {
+            if (! $row instanceof Model || ! $this->sameIdentity($definition->ownerKey, $row->getRawOriginal($definition->ownerKey), $owner->getRawOriginal($definition->ownerKey)) || ! $this->sameIdentity('owner_scope_key', $row->getRawOriginal('owner_scope_key'), $owner->getRawOriginal('owner_scope_key'))) {
                 throw new OwnershipViolation('An eager translation owner is stale or outside the active boundary.');
             }
             foreach ($fields as $field) {

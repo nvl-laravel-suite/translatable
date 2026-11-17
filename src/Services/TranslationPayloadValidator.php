@@ -24,7 +24,7 @@ final readonly class TranslationPayloadValidator
     ) {}
 
     /**
-     * Validate mutation size, field count, and nesting limits.
+     * Validate mutation size, field count, nesting limits, and NUL-free strings.
      *
      * @param  array<array-key, mixed>  $translations
      */
@@ -93,6 +93,12 @@ final readonly class TranslationPayloadValidator
             throw new TranslatableException(
                 'Translation mutations must contain JSON-serializable values.',
                 previous: $exception,
+            );
+        }
+
+        if (preg_match('/(?<!\\\\)(?:\\\\\\\\)*\\\\u0000/', $encoded) === 1) {
+            throw new TranslatableException(
+                'Translation mutations cannot contain NUL bytes.',
             );
         }
 

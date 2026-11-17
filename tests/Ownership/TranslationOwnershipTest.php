@@ -198,6 +198,26 @@ it('admits an owned canonical owner whose integer key the driver returns as a nu
     });
 })->group('fresh-adoption');
 
+it('admits batched eager owners whose integer key the driver returns as a numeric string', function (): void {
+    app(OwnershipRunner::class)->run(OwnershipCompany::query()->findOrFail(7), OwnershipActor::query()->firstOrFail(), function (): void {
+        $record = app(OwnershipWriter::class)->create(OwnershipRelatedRecord::class, fn (OwnershipAssignment $assignment): OwnershipRelatedRecord => OwnershipRelatedRecord::query()->create([...$assignment->attributes(), 'id' => 73]));
+        app(TranslationWriter::class)->sync($record, ['en' => ['name' => 'Batched']], SystemActor::Background, app(TranslationResourceVersioner::class)->version($record));
+        $record->unsetRelation('translations');
+        $pdo = DB::connection()->getPdo();
+        $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, true);
+
+        try {
+            expect($record->getRawOriginal('id'))->toBe(73);
+            (new OwnershipRelatedRecord)->newCollection([$record])->load('translations');
+
+            expect($record->getRelation('translations'))->toHaveCount(1)
+                ->and($record->translated('name', 'en'))->toBe('Batched');
+        } finally {
+            $pdo->setAttribute(PDO::ATTR_STRINGIFY_FETCHES, false);
+        }
+    });
+})->group('fresh-adoption');
+
 it('admits the locked canonical owner once for a whole locale batch', function (): void {
     app(OwnershipRunner::class)->run(OwnershipCompany::query()->findOrFail(7), OwnershipActor::query()->firstOrFail(), function (): void {
         $identityReads = static function (int $id, array $locales): int {

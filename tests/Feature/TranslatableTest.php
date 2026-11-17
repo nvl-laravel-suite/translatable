@@ -21,6 +21,7 @@ use Nvl\Translatable\Enums\TranslationSyncMode;
 use Nvl\Translatable\Exceptions\InvalidLocaleException;
 use Nvl\Translatable\Exceptions\InvalidTranslatableFieldException;
 use Nvl\Translatable\Exceptions\TranslatableException;
+use Nvl\Translatable\Exceptions\TranslationResourceException;
 use Nvl\Translatable\RelatedTranslationDefinition;
 use Nvl\Translatable\SelfTranslationDefinition;
 use Nvl\Translatable\Services\ContentLocale;
@@ -171,6 +172,34 @@ it('invalidates opt-in related value caching after writer mutations and bypasses
     $set('Second');
     expect($copy->translated('name', 'bg'))->toBe('Second');
 });
+
+test('it rejects a revision read before a same-second translation change', function (): void {
+    $this->freezeTime();
+    $model = TestTranslatableModel::create(['slug' => 'same-second']);
+    $writer = app(TranslationWriter::class);
+    $versioner = app(TranslationResourceVersioner::class);
+    $writer->sync($model, ['en' => ['name' => 'First']], SystemActor::Background, $versioner->version($model));
+
+    $stale = $versioner->version($model);
+    $writer->sync($model, ['en' => ['name' => 'Second']], SystemActor::Background, $stale);
+
+    expect($versioner->version($model))->not->toBe($stale)
+        ->and(fn () => $writer->sync($model, ['en' => ['name' => 'Lost']], SystemActor::Background, $stale))
+        ->toThrow(TranslationResourceException::class)
+        ->and($model->fresh()->translated('name', 'en'))->toBe('Second');
+});
+
+test('it rejects NUL-containing translation strings before any driver can truncate them', function (mixed $value): void {
+    $model = TestTranslatableModel::create(['slug' => 'nul']);
+    $version = app(TranslationResourceVersioner::class)->version($model);
+
+    expect(fn () => app(TranslationWriter::class)->sync($model, ['en' => ['name' => $value]], SystemActor::Background, $version))
+        ->toThrow(TranslatableException::class, 'NUL')
+        ->and(TestTranslatableModelTranslation::query()->count())->toBe(0);
+})->with([
+    'text' => ["Head\0Tail"],
+    'nested' => [['label' => "Head\0Tail"]],
+]);
 
 test('it writes and explicitly resolves translated attributes', function (): void {
     $model = TestTranslatableModel::create(['slug' => 'test-slug']);

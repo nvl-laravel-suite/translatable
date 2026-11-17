@@ -52,7 +52,7 @@ Pass that mandatory string version to `TranslationWriter::sync` or `deleteLocale
 The writer locks/revalidates the canonical model on its actual connection and enforces host policy/CAS.
 Events follow the real outer commit; rollback cannot publish committed translation events.
 Patch preserves omitted locales/fields; Replace removes omitted locales according to its storage contract.
-Explicit null is a value, not omission; undeclared fields/locales and oversized payloads reject.
+Explicit null is a value, not omission; undeclared fields/locales, NUL-containing strings and oversized payloads reject.
 An omitted resource key is valid only for exactly one matching registration.
 `TranslationMutationPolicy::OwningServiceOnly` resources reject generic writer mutations; their domain service owns the complete workflow.
 
