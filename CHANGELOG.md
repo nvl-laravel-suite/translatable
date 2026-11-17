@@ -5,10 +5,18 @@ All notable changes to `nvl/translatable` are documented here.
 
 ## [Unreleased]
 
+## [7.5.0] - 2026-11-17
+
 ### Fixed
 
 - Batched eager loading of owned related translations admits a canonical owner whose integer key or `owner_scope_key` the driver returns as a numeric string while the loaded model holds an integer (or the reverse), instead of rejecting it as stale. Distinct textual keys such as `070` and `70` still differ.
 - `TranslationWriter::sync` rejects a payload whose strings or keys contain a NUL byte with `TranslatableException` before any write. PostgreSQL truncated such a value at the NUL in a text column and failed a jsonb column with SQLSTATE 22P05, aborting the caller's transaction.
+
+<!-- NVL GENERATED CHANGES START -->
+### Changed
+
+- consumer-audit fixes across the suite, UTC timestamps, core/forms release ordering
+<!-- NVL GENERATED CHANGES END -->
 
 ## [7.4.0] - 2026-11-17
 
